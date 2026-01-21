@@ -9,8 +9,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Eye, EyeOff, Loader2, Users, Store, CheckCircle } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
-
 export function SignupForm() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -45,92 +43,40 @@ export function SignupForm() {
     }
 
     try {
-      const supabase = createClient()
-
-      // Check if phone number already exists for this user type
-      if (formData.phone.trim()) {
-        const { data: existingProfile } = await supabase
-          .from("profiles")
-          .select("id, user_type")
-          .eq("phone", formData.phone.trim())
-          .eq("user_type", formData.mode)
-          .single()
-
-        if (existingProfile) {
-          setError(
-            `This phone number is already registered with a ${formData.mode} account. ` +
-            `You can use the same phone number for both personal and business accounts, but not for two accounts of the same type.`
-          )
-          setIsLoading(false)
-          return
-        }
-      }
-
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          emailRedirectTo:
-            process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
-            `${window.location.origin}/dashboard`,
-          data: {
-            full_name: formData.name,
-            phone: formData.phone,
-            user_type: formData.mode,
-            business_name: formData.mode === "business" ? formData.businessName : null,
-          },
-        },
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          full_name: formData.name,
+          phone: formData.phone.trim() || undefined,
+          user_type: formData.mode,
+          business_name: formData.mode === "business" ? formData.businessName : undefined,
+        }),
       })
 
-      if (signUpError) {
-        setError(signUpError.message)
+      const data = await response.json()
+
+      if (!response.ok) {
+        const errorMessage = data.error || "Failed to create account"
+        setError(errorMessage)
         setIsLoading(false)
         return
       }
 
       if (data.user) {
-        // Wait a moment for the trigger to create the profile
-        await new Promise(resolve => setTimeout(resolve, 500))
-
-        // Refresh the session to ensure we're authenticated
-        await supabase.auth.refreshSession()
-
-        // Check if profile exists for the user
-        const { data: profile, error: profileFetchError } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("id", data.user.id)
-          .single()
-
-        if (profileFetchError || !profile) {
-          setError("Account created, but profile setup failed. Please try signing up again or contact support.")
-          setIsLoading(false)
-          return
-        }
-
-        // Try to update the profile (should exist now)
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({
-            full_name: formData.name,
-            phone: formData.phone.trim() || null,
-            user_type: formData.mode,
-            business_name: formData.mode === "business" ? formData.businessName : null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", data.user.id)
-
-        if (profileError) {
-          setError(profileError.message || "Failed to update profile. Please try again.")
-          setIsLoading(false)
-          return
-        }
-
         setSuccess(true)
+        setTimeout(() => {
+          window.location.href = "/login"
+        }, 2000)
+      } else {
+        setError("Account created but user data not returned. Please try signing in.")
+        setIsLoading(false)
       }
     } catch (err: any) {
+      console.error("Signup error:", err)
       setError(err?.message || "An unexpected error occurred. Please try again.")
-    } finally {
       setIsLoading(false)
     }
   }
@@ -141,10 +87,9 @@ export function SignupForm() {
         <div className="rounded-full bg-primary/10 p-3">
           <CheckCircle className="h-8 w-8 text-primary" />
         </div>
-        <h2 className="text-xl font-semibold">Check your email</h2>
+        <h2 className="text-xl font-semibold">Account created successfully!</h2>
         <p className="text-muted-foreground">
-          A verification link has been sent to <strong>{formData.email}</strong>.<br />
-          Please complete the verification and then you can sign in.
+          Your account has been created. You can now sign in.
         </p>
         <Button
           variant="outline"
@@ -244,7 +189,10 @@ export function SignupForm() {
           type="email"
           placeholder="you@example.com"
           value={formData.email}
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          onChange={(e) => {
+            setFormData({ ...formData, email: e.target.value })
+            if (error) setError(null)
+          }}
           required
           disabled={isLoading}
         />
@@ -270,7 +218,10 @@ export function SignupForm() {
             type={showPassword ? "text" : "password"}
             placeholder="Create a password (min 6 characters)"
             value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, password: e.target.value })
+              if (error) setError(null)
+            }}
             required
             disabled={isLoading}
           />

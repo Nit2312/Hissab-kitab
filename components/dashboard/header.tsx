@@ -31,7 +31,6 @@ import {
   TrendingUp
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { createClient } from "@/lib/supabase/client"
 
 const personalNavItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Overview" },
@@ -67,10 +66,8 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
   const navItems = isBusinessUser ? businessNavItems : personalNavItems
 
   const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push("/")
-    router.refresh()
+    await fetch("/api/auth/signout", { method: "POST", credentials: "include" })
+    window.location.href = "/login"
   }
 
   const getInitials = (name: string) => {

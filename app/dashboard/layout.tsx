@@ -2,35 +2,22 @@ import React from "react"
 import { redirect } from "next/navigation"
 import { DashboardSidebar } from "@/components/dashboard/sidebar"
 import { DashboardHeader } from "@/components/dashboard/header"
-import { createClient } from "@/lib/supabase/server"
+import { getCurrentUser } from "@/lib/mongodb/server"
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   
   if (!user) {
-    redirect("/login")
+    redirect("/login?error=unauthorized")
   }
 
-  // Fetch user profile
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single()
-
-  if (!profile) {
-    redirect("/signup")
-  }
-
-  const userType = profile?.user_type || "personal"
-  const userName = profile?.full_name || user.email?.split("@")[0] || "User"
-  const businessName = profile?.business_name || null
+  const userType = user.user_type || "personal"
+  const userName = user.full_name || user.email?.split("@")[0] || "User"
+  const businessName = user.business_name || null
 
   return (
     <div className="flex min-h-screen bg-muted/30">

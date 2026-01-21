@@ -9,13 +9,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Eye, EyeOff, Loader2, Users, Store } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
+interface LoginFormProps {
+  initialError?: string | null
+}
 
-export function LoginForm() {
+export function LoginForm({ initialError }: LoginFormProps = {}) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(initialError || null)
   const [userType, setUserType] = useState<"personal" | "business">("personal")
   const [formData, setFormData] = useState({
     email: "",
@@ -28,49 +30,53 @@ export function LoginForm() {
     setError(null)
 
     try {
-      const supabase = createClient()
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password,
+      const response = await fetch("/api/auth/signin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
       })
 
-      if (signInError) {
-        setError(signInError.message)
+      const data = await response.json()
+
+      if (!response.ok) {
+        const errorMessage = data.error || "Failed to sign in"
+        setError(errorMessage)
         setIsLoading(false)
         return
       }
 
       if (data.user) {
-        // Check if profile exists for the user
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", data.user.id)
-          .single()
-
-        if (profileError || !profile) {
-          setError("No profile found for this account. Please contact support or sign up again.")
-          setIsLoading(false)
-          return
-        }
-
         // Update user type in profile based on selection
-        await supabase
-          .from("profiles")
-          .update({ user_type: userType })
-          .eq("id", data.user.id)
-
-        // Redirect based on user type
-        if (userType === "business") {
-          router.push("/dashboard/khata")
-        } else {
-          router.push("/dashboard")
+        if (data.user.user_type !== userType) {
+          try {
+            await fetch("/api/auth/update-user-type", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ user_type: userType }),
+            })
+          } catch (updateError) {
+            console.error("Failed to update user type:", updateError)
+            // Don't block redirect if update fails
+          }
         }
-        router.refresh()
+
+        // Small delay to ensure cookie is set, then redirect with full page reload
+        setTimeout(() => {
+          const redirectPath = userType === "business" ? "/dashboard/khata" : "/dashboard"
+          window.location.href = redirectPath
+        }, 100)
+      } else {
+        setError("Sign in successful but user data not returned. Please try again.")
+        setIsLoading(false)
       }
-    } catch (err) {
-      setError("An unexpected error occurred. Please try again.")
-    } finally {
+    } catch (err: any) {
+      console.error("Login error:", err)
+      setError(err?.message || "An unexpected error occurred. Please try again.")
       setIsLoading(false)
     }
   }
@@ -134,7 +140,10 @@ export function LoginForm() {
           type="email"
           placeholder="you@example.com"
           value={formData.email}
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          onChange={(e) => {
+            setFormData({ ...formData, email: e.target.value })
+            if (error) setError(null)
+          }}
           required
           disabled={isLoading}
         />
@@ -153,7 +162,10 @@ export function LoginForm() {
             type={showPassword ? "text" : "password"}
             placeholder="Enter your password"
             value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, password: e.target.value })
+              if (error) setError(null)
+            }}
             required
             disabled={isLoading}
           />
