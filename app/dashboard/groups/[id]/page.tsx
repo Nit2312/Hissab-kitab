@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -17,7 +16,10 @@ import {
   TrendingDown,
   MoreVertical,
   UserPlus,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Pencil,
+  Trash2,
+  LogOut
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -25,8 +27,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog"
 import { AddMembersDialog } from "@/components/groups/add-members-dialog"
+import { EditMemberDialog } from "@/components/groups/edit-member-dialog"
 import { useToast } from "@/hooks/use-toast"
 
 type Group = {
@@ -70,7 +83,14 @@ export default function GroupDetailPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [currentUserId, setCurrentUserId] = useState<string>("")
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false)
+  const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false)
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
   const [isAddMembersOpen, setIsAddMembersOpen] = useState(false)
+  const [isEditMemberOpen, setIsEditMemberOpen] = useState(false)
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false)
+  const [memberToDelete, setMemberToDelete] = useState<Member | null>(null)
   const [totalExpenses, setTotalExpenses] = useState(0)
   const [yourShare, setYourShare] = useState(0)
   const [youPaid, setYouPaid] = useState(0)
@@ -82,74 +102,87 @@ export default function GroupDetailPage() {
   const fetchGroupDetails = async () => {
     setLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) {
+      // Get current user
+      const userResponse = await fetch("/api/auth/user")
+      if (!userResponse.ok) {
         router.push("/login")
         return
       }
-
-      setCurrentUserId(user.id)
+      const userData = await userResponse.json()
+      setCurrentUserId(userData.id)
 
       // Fetch group details
-      const { data: groupData, error: groupError } = await supabase
-        .from("groups")
-        .select("*")
-        .eq("id", groupId)
-        .single()
-
-      if (groupError) throw groupError
+      const groupsResponse = await fetch("/api/groups")
+      if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
+      const groupsData = await groupsResponse.json()
+      const groupData = groupsData.find((g: any) => g.id === groupId)
+      
+      if (!groupData) {
+        throw new Error("Group not found")
+      }
       setGroup(groupData)
 
       // Fetch members
-      const { data: membersData, error: membersError } = await supabase
-        .from("group_members")
-        .select("*")
-        .eq("group_id", groupId)
-
-      if (membersError) throw membersError
-      setMembers(membersData || [])
+      const membersResponse = await fetch(`/api/groups/members?group_id=${groupId}`, {
+        cache: 'no-store', // Ensure fresh data
+        credentials: "include",
+      })
+      if (!membersResponse.ok) throw new Error("Failed to fetch members")
+      const membersData = await membersResponse.json()
+      setMembers(membersData)
 
       // Fetch expenses
-      const { data: expensesData, error: expensesError } = await supabase
-        .from("expenses")
-        .select("*")
-        .eq("group_id", groupId)
-        .order("date", { ascending: false })
-
-      if (expensesError) throw expensesError
+      const expensesResponse = await fetch("/api/expenses", {
+        cache: 'no-store', // Ensure fresh data
+        credentials: "include",
+      })
+      if (!expensesResponse.ok) throw new Error("Failed to fetch expenses")
+      const allExpenses = await expensesResponse.json()
+      const expensesData = allExpenses
+        .filter((e: any) => e.group_id === groupId)
+        // Sort by date (newest first), then by created_at (newest first)
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.date).getTime()
+          const dateB = new Date(b.date).getTime()
+          if (dateB !== dateA) {
+            return dateB - dateA // Newer dates first
+          }
+          // If dates are equal, sort by created_at
+          const createdA = new Date(a.created_at || 0).getTime()
+          const createdB = new Date(b.created_at || 0).getTime()
+          return createdB - createdA // Newer created_at first
+        })
 
       // Get member names for expenses
-      const expensesWithNames = await Promise.all(
-        (expensesData || []).map(async (expense) => {
-          const member = membersData?.find(m => m.user_id === expense.paid_by)
-          return {
-            ...expense,
-            paid_by_name: member?.name || "Unknown"
-          }
-        })
-      )
+      const expensesWithNames = expensesData.map((expense: any) => {
+        // Try to find member by user_id first
+        let member = membersData.find((m: any) => m.user_id === expense.paid_by)
+        // If not found, try to get from expense's paid_by_name (from API)
+        return {
+          ...expense,
+          paid_by_name: member?.name || expense.paid_by_name || "Unknown"
+        }
+      })
 
       setExpenses(expensesWithNames)
 
       // Calculate totals
-      const total = expensesData?.reduce((sum, e) => sum + Number(e.amount), 0) || 0
+      const total = expensesData.reduce((sum: number, e: any) => sum + Number(e.amount), 0)
       setTotalExpenses(total)
 
-      const paid = expensesData?.filter(e => e.paid_by === user.id)
-        .reduce((sum, e) => sum + Number(e.amount), 0) || 0
+      const paid = expensesData.filter((e: any) => e.paid_by === userData.id)
+        .reduce((sum: number, e: any) => sum + Number(e.amount), 0)
       setYouPaid(paid)
 
       // Calculate your share (equal split for now)
-      const memberCount = membersData?.length || 1
+      const memberCount = membersData.length || 1
       setYourShare(total / memberCount)
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching group details:", err)
       toast({
         title: "Error",
-        description: "Failed to load group details",
+        description: err.message || "Failed to load group details",
         variant: "destructive",
       })
     } finally {
@@ -163,24 +196,25 @@ export default function GroupDetailPage() {
     }
 
     try {
-      const supabase = createClient()
-      const { error } = await supabase
-        .from("groups")
-        .delete()
-        .eq("id", groupId)
+      const response = await fetch(`/api/groups/${groupId}`, {
+        method: "DELETE",
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to delete group")
+      }
 
       toast({
         title: "Group deleted",
         description: "The group has been successfully deleted.",
       })
       router.push("/dashboard/groups")
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error deleting group:", err)
       toast({
         title: "Error",
-        description: "Failed to delete group",
+        description: err.message || "Failed to delete group",
         variant: "destructive",
       })
     }
@@ -211,6 +245,102 @@ export default function GroupDetailPage() {
 
   const balance = youPaid - yourShare
   const isCreator = group.created_by === currentUserId
+
+  const handleEditMember = (member: Member) => {
+    setSelectedMember(member)
+    setIsEditMemberOpen(true)
+  }
+
+  const handleDeleteMember = (member: Member) => {
+    setMemberToDelete(member)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const confirmDeleteMember = async () => {
+    if (!memberToDelete) return
+
+    try {
+      const response = await fetch(`/api/groups/members/${memberToDelete.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to delete member")
+      }
+
+      toast({
+        title: "Member removed",
+        description: `${memberToDelete.name} has been removed from the group.`,
+      })
+
+      setIsDeleteDialogOpen(false)
+      setMemberToDelete(null)
+      
+      // Immediately remove from local state for instant UI update
+      setMembers(prev => prev.filter(m => m.id !== memberToDelete.id))
+      
+      // Then refresh all data to ensure consistency
+      await fetchGroupDetails()
+    } catch (err: any) {
+      console.error("Error deleting member:", err)
+      toast({
+        title: "Error",
+        description: err.message || "Failed to remove member. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleLeaveGroup = async () => {
+    const currentMember = members.find(m => m.user_id === currentUserId)
+    if (!currentMember) return
+
+    try {
+      // Check balance first
+      const balanceResponse = await fetch(`/api/groups/members/${currentMember.id}`, {
+        credentials: "include",
+      })
+      if (balanceResponse.ok) {
+        const balanceData = await balanceResponse.json()
+        if (Math.abs(balanceData.balance) > 0.01) {
+          toast({
+            title: "Cannot leave group",
+            description: `You have an outstanding balance of ₹${Math.abs(balanceData.balance).toFixed(2)}. Please settle all expenses before leaving.`,
+            variant: "destructive",
+          })
+          setIsLeaveDialogOpen(false)
+          return
+        }
+      }
+
+      const response = await fetch(`/api/groups/members/${currentMember.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to leave group")
+      }
+
+      toast({
+        title: "Left group",
+        description: "You have successfully left the group.",
+      })
+
+      setIsLeaveDialogOpen(false)
+      router.push("/dashboard/groups")
+    } catch (err: any) {
+      console.error("Error leaving group:", err)
+      toast({
+        title: "Error",
+        description: err.message || "Failed to leave group. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
 
   return (
     <div className="space-y-6 pb-20 lg:pb-0">
@@ -346,33 +476,89 @@ export default function GroupDetailPage() {
               </CardContent>
             </Card>
           ) : (
-            expenses.map((expense) => (
-              <Card key={expense.id}>
-                <CardContent className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                      <Receipt className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">{expense.description}</p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="capitalize">{expense.category}</span>
-                        <span>•</span>
-                        <span>{expense.paid_by_name} paid</span>
-                        <span>•</span>
-                        <span>{new Date(expense.date).toLocaleDateString("en-IN")}</span>
+            expenses.map((expense) => {
+              const isPaidByYou = expense.paid_by === currentUserId
+              return (
+                <Card key={expense.id}>
+                  <CardContent className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                        <Receipt className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">{expense.description}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="capitalize">{expense.category}</span>
+                          <span>•</span>
+                          <span>{expense.paid_by_name} paid</span>
+                          <span>•</span>
+                          <span>{new Date(expense.date).toLocaleDateString("en-IN")}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold">₹{Number(expense.amount).toLocaleString("en-IN")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      ₹{(Number(expense.amount) / members.length).toLocaleString("en-IN", { maximumFractionDigits: 0 })} per person
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-lg font-bold">₹{Number(expense.amount).toLocaleString("en-IN")}</p>
+                        <p className="text-xs text-muted-foreground">
+                          ₹{(Number(expense.amount) / members.length).toLocaleString("en-IN", { maximumFractionDigits: 0 })} per person
+                        </p>
+                      </div>
+                      {isPaidByYou && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => {
+                              setSelectedExpense(expense)
+                              setIsEditExpenseOpen(true)
+                            }}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              className="text-destructive"
+                              onClick={async () => {
+                                if (!confirm(`Are you sure you want to delete "${expense.description}"? This action cannot be undone.`)) {
+                                  return
+                                }
+                                try {
+                                  const response = await fetch(`/api/expenses/${expense.id}`, {
+                                    method: "DELETE",
+                                    credentials: "include",
+                                  })
+                                  if (!response.ok) {
+                                    const data = await response.json()
+                                    throw new Error(data.error || "Failed to delete expense")
+                                  }
+                                  toast({
+                                    title: "Expense deleted",
+                                    description: "The expense has been successfully deleted.",
+                                  })
+                                  fetchGroupDetails()
+                                } catch (err: any) {
+                                  console.error("Error deleting expense:", err)
+                                  toast({
+                                    title: "Error",
+                                    description: err.message || "Failed to delete expense. Please try again.",
+                                    variant: "destructive",
+                                  })
+                                }
+                              }}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
           )}
         </TabsContent>
 
@@ -384,51 +570,12 @@ export default function GroupDetailPage() {
               <CardDescription>{members.length} members in this group</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {members.map((member) => (
-                <div key={member.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarFallback className="bg-primary/10 text-primary">
-                        {member.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium text-foreground">{member.name}</p>
-                      {member.email && (
-                        <p className="text-xs text-muted-foreground">{member.email}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {member.is_registered ? (
-                      <Badge variant="secondary">Member</Badge>
-                    ) : (
-                      <Badge variant="outline">Guest</Badge>
-                    )}
-                    {member.user_id === group.created_by && (
-                      <Badge variant="default">Creator</Badge>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Balances Tab */}
-        <TabsContent value="balances" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Who Owes What</CardTitle>
-              <CardDescription>Simplified balances based on equal split</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
               {members.map((member) => {
-                const memberPaid = expenses
-                  .filter(e => e.paid_by === member.user_id)
-                  .reduce((sum, e) => sum + Number(e.amount), 0)
-                const memberShare = totalExpenses / members.length
-                const memberBalance = memberPaid - memberShare
+                const isCurrentUser = member.user_id === currentUserId
+                const isMemberCreator = member.user_id === group.created_by
+                const canEdit = isCreator && !isMemberCreator
+                const canDelete = isCreator && !isMemberCreator
+                const canLeave = isCurrentUser && !isMemberCreator
 
                 return (
                   <div key={member.id} className="flex items-center justify-between rounded-lg border border-border p-3">
@@ -440,21 +587,58 @@ export default function GroupDetailPage() {
                       </Avatar>
                       <div>
                         <p className="font-medium text-foreground">{member.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Paid ₹{memberPaid.toLocaleString("en-IN")} • 
-                          Share ₹{memberShare.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                        </p>
+                        {member.email && member.is_registered && (
+                          <p className="text-xs text-muted-foreground">{member.email}</p>
+                        )}
+                        {!member.is_registered && member.phone && (
+                          <p className="text-xs text-muted-foreground">{member.phone}</p>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className={`font-bold ${
-                        memberBalance > 0 ? "text-primary" : memberBalance < 0 ? "text-destructive" : "text-muted-foreground"
-                      }`}>
-                        {memberBalance > 0 ? "+" : ""}₹{Math.abs(memberBalance).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {memberBalance > 0 ? "Gets back" : memberBalance < 0 ? "Owes" : "Settled"}
-                      </p>
+                    <div className="flex items-center gap-2">
+                      {member.is_registered ? (
+                        <Badge variant="secondary">Member</Badge>
+                      ) : (
+                        <Badge variant="outline">Guest</Badge>
+                      )}
+                      {isMemberCreator && (
+                        <Badge variant="default">Creator</Badge>
+                      )}
+                      {(canEdit || canDelete || canLeave) && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {canEdit && (
+                              <DropdownMenuItem onClick={() => handleEditMember(member)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Edit
+                              </DropdownMenuItem>
+                            )}
+                            {canDelete && (
+                              <DropdownMenuItem 
+                                className="text-destructive"
+                                onClick={() => handleDeleteMember(member)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Remove
+                              </DropdownMenuItem>
+                            )}
+                            {canLeave && (
+                              <DropdownMenuItem 
+                                className="text-destructive"
+                                onClick={() => setIsLeaveDialogOpen(true)}
+                              >
+                                <LogOut className="mr-2 h-4 w-4" />
+                                Leave Group
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
                   </div>
                 )
@@ -462,15 +646,274 @@ export default function GroupDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Balances Tab */}
+        <TabsContent value="balances" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Your Balances</CardTitle>
+              <CardDescription>Who you owe and who owes you</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(() => {
+                // Splitwise-style calculation: equal split across all members
+                const memberCount = members.length || 1
+                const sharePerPerson = totalExpenses / memberCount
+
+                // Calculate each member's balance (paid - share)
+                const memberBalances = members.map((member) => {
+                  const memberPaid = expenses
+                    .filter(e => e.paid_by === member.user_id)
+                    .reduce((sum, e) => sum + Number(e.amount), 0)
+                  const balance = memberPaid - sharePerPerson
+                  return { member, paid: memberPaid, share: sharePerPerson, balance }
+                })
+
+                // Find current user's balance
+                const currentUserBalanceData = memberBalances.find(
+                  mb => mb.member.user_id === currentUserId
+                )
+                if (!currentUserBalanceData) {
+                  return (
+                    <div className="rounded-lg border border-border bg-muted/50 p-6 text-center">
+                      <p className="text-sm text-muted-foreground">Unable to calculate balances</p>
+                    </div>
+                  )
+                }
+
+                const currentUserBalance = currentUserBalanceData.balance
+
+                // Calculate who you owe and who owes you (Splitwise style)
+                const whoYouOwe: Array<{ member: Member; amount: number }> = []
+                const whoOwesYou: Array<{ member: Member; amount: number }> = []
+
+                if (currentUserBalance < 0) {
+                  // Current user owes money - they owe to members with positive balance
+                  const totalOwed = Math.abs(currentUserBalance)
+                  const membersOwed = memberBalances.filter(
+                    mb => mb.member.user_id !== currentUserId && mb.balance > 0.01
+                  )
+                  const totalPositiveBalance = membersOwed.reduce((sum, mb) => sum + mb.balance, 0)
+
+                  if (totalPositiveBalance > 0.01) {
+                    membersOwed.forEach(({ member, balance }) => {
+                      // Distribute proportionally based on how much each member is owed
+                      const amount = (totalOwed * balance) / totalPositiveBalance
+                      if (amount > 0.01) {
+                        whoYouOwe.push({ member, amount })
+                      }
+                    })
+                  }
+                } else if (currentUserBalance > 0) {
+                  // Current user is owed money - members with negative balance owe them
+                  const totalOwedToUser = currentUserBalance
+                  const membersWhoOwe = memberBalances.filter(
+                    mb => mb.member.user_id !== currentUserId && mb.balance < -0.01
+                  )
+                  const totalNegativeBalance = membersWhoOwe.reduce(
+                    (sum, mb) => sum + Math.abs(mb.balance), 0
+                  )
+
+                  if (totalNegativeBalance > 0.01) {
+                    membersWhoOwe.forEach(({ member, balance }) => {
+                      // Distribute proportionally based on how much each member owes
+                      const amount = (totalOwedToUser * Math.abs(balance)) / totalNegativeBalance
+                      if (amount > 0.01) {
+                        whoOwesYou.push({ member, amount })
+                      }
+                    })
+                  }
+                }
+
+                // Calculate totals
+                const totalYouOwe = whoYouOwe.reduce((sum, item) => sum + item.amount, 0)
+                const totalOwedToYou = whoOwesYou.reduce((sum, item) => sum + item.amount, 0)
+
+                return (
+                  <>
+                    {whoYouOwe.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-muted-foreground">You need to pay to</p>
+                        <div className="space-y-2">
+                          {whoYouOwe.map(({ member, amount }) => (
+                            <div key={member.id} className="flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+                              <div className="flex items-center gap-3">
+                                <Avatar>
+                                  <AvatarFallback className="bg-destructive/10 text-destructive">
+                                    {member.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium text-foreground">{member.name}</p>
+                                  {member.email && member.is_registered && (
+                                    <p className="text-xs text-muted-foreground">{member.email}</p>
+                                  )}
+                                  {!member.is_registered && member.phone && (
+                                    <p className="text-xs text-muted-foreground">{member.phone}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-lg font-bold text-destructive">
+                                  ₹{amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {totalYouOwe > 0.01 && (
+                          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+                            <div className="flex items-center justify-between">
+                              <p className="font-medium text-foreground">Total to pay</p>
+                              <p className="text-xl font-bold text-destructive">
+                                ₹{totalYouOwe.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {whoOwesYou.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-muted-foreground">You need to take from</p>
+                        <div className="space-y-2">
+                          {whoOwesYou.map(({ member, amount }) => (
+                            <div key={member.id} className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 p-3">
+                              <div className="flex items-center gap-3">
+                                <Avatar>
+                                  <AvatarFallback className="bg-primary/10 text-primary">
+                                    {member.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium text-foreground">{member.name}</p>
+                                  {member.email && member.is_registered && (
+                                    <p className="text-xs text-muted-foreground">{member.email}</p>
+                                  )}
+                                  {!member.is_registered && member.phone && (
+                                    <p className="text-xs text-muted-foreground">{member.phone}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-lg font-bold text-primary">
+                                  ₹{amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {totalOwedToYou > 0.01 && (
+                          <div className="rounded-lg border border-primary/30 bg-primary/10 p-3">
+                            <div className="flex items-center justify-between">
+                              <p className="font-medium text-foreground">Total to receive</p>
+                              <p className="text-xl font-bold text-primary">
+                                ₹{totalOwedToYou.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {whoYouOwe.length === 0 && whoOwesYou.length === 0 && (
+                      <div className="rounded-lg border border-border bg-muted/50 p-6 text-center">
+                        <p className="text-lg font-medium text-foreground">All settled up!</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          You don't owe anyone and no one owes you.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
-      <AddExpenseDialog open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen} />
-      <AddMembersDialog 
-        open={isAddMembersOpen} 
-        onOpenChange={setIsAddMembersOpen} 
-        groupId={groupId}
-        onMembersAdded={fetchGroupDetails}
-      />
-    </div>
-  )
-}
+        <AddExpenseDialog 
+          open={isAddExpenseOpen} 
+          onOpenChange={setIsAddExpenseOpen}
+          defaultGroupId={groupId}
+          onExpenseUpdated={fetchGroupDetails}
+        />
+        <AddExpenseDialog 
+          open={isEditExpenseOpen} 
+          onOpenChange={setIsEditExpenseOpen}
+          defaultGroupId={groupId}
+          expense={selectedExpense ? {
+            id: selectedExpense.id,
+            description: selectedExpense.description,
+            amount: selectedExpense.amount,
+            category: selectedExpense.category,
+            date: selectedExpense.date
+          } : undefined}
+          onExpenseUpdated={() => {
+            setIsEditExpenseOpen(false)
+            setSelectedExpense(null)
+            fetchGroupDetails()
+          }}
+        />
+        <AddMembersDialog 
+          open={isAddMembersOpen} 
+          onOpenChange={setIsAddMembersOpen}
+          groupId={groupId}
+          onMembersAdded={fetchGroupDetails}
+        />
+        {selectedMember && (
+          <EditMemberDialog
+            open={isEditMemberOpen}
+            onOpenChange={setIsEditMemberOpen}
+            member={selectedMember}
+            onMemberUpdated={() => {
+              setIsEditMemberOpen(false)
+              setSelectedMember(null)
+              fetchGroupDetails()
+            }}
+          />
+        )}
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove Member?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to remove {memberToDelete?.name} from this group? 
+                This action cannot be undone and all their expense splits will be removed.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDeleteMember}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={isLeaveDialogOpen} onOpenChange={setIsLeaveDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Leave Group?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to leave this group? You can only leave if you have no outstanding balance.
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleLeaveGroup}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Leave Group
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    )
+  }

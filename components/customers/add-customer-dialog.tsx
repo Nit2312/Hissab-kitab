@@ -2,7 +2,6 @@
 
 import React from "react"
 import { useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -37,19 +36,22 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
     e.preventDefault()
     setIsLoading(true)
     try {
-      const supabase = createClient();
-      const user = (await supabase.auth.getUser()).data.user;
-      if (!user) throw new Error("Not authenticated");
-      const { error } = await supabase.from("customers").insert([
-        {
-          owner_id: user.id,
+      const response = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           name: formData.name,
           phone: formData.phone,
           email: formData.email,
           address: formData.address
-        }
-      ]);
-      if (error) throw error;
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to add customer");
+      }
+
       onOpenChange(false);
       setFormData({
         name: "",
@@ -61,11 +63,12 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
         title: "Customer added",
         description: "Customer has been successfully added to your khata.",
       })
-    } catch (err) {
+      window.location.reload();
+    } catch (err: any) {
       console.error(err);
       toast({
         title: "Error",
-        description: "Failed to add customer. Please try again.",
+        description: err.message || "Failed to add customer. Please try again.",
         variant: "destructive",
       })
     } finally {

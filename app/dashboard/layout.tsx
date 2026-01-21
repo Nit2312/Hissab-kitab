@@ -24,6 +24,10 @@ export default async function DashboardLayout({
     .eq("id", user.id)
     .single()
 
+  if (!profile) {
+    redirect("/signup")
+  }
+
   const userType = profile?.user_type || "personal"
   const userName = profile?.full_name || user.email?.split("@")[0] || "User"
   const businessName = profile?.business_name || null

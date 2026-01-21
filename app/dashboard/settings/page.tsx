@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -65,26 +64,17 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        const response = await fetch("/api/profile")
+        if (!response.ok) return
+        const profileData = await response.json()
 
-        // Fetch profile
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .single()
-
-        if (profileData) {
-          setProfile({
-            name: profileData.full_name || "",
-            email: user.email || "",
-            phone: profileData.phone || "",
-            language: "en", // TODO: Add language to profile
-            currency: "INR", // TODO: Add currency to profile
-          })
-        }
+        setProfile({
+          name: profileData.full_name || "",
+          email: profileData.email || "",
+          phone: profileData.phone || "",
+          language: "en", // TODO: Add language to profile
+          currency: "INR", // TODO: Add currency to profile
+        })
       } catch (err) {
         console.error("Error fetching profile:", err)
       }
@@ -96,62 +86,18 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setIsLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("Not authenticated")
-
-      // Get current user type
-      const { data: currentProfile } = await supabase
-        .from("profiles")
-        .select("user_type, phone")
-        .eq("id", user.id)
-        .single()
-
-      if (!currentProfile) throw new Error("Profile not found")
-
-      // Check if phone number already exists for this user type (if changed)
-      if (profile.phone.trim() && profile.phone.trim() !== currentProfile.phone) {
-        const { data: existingProfile } = await supabase
-          .from("profiles")
-          .select("id, user_type")
-          .eq("phone", profile.phone.trim())
-          .eq("user_type", currentProfile.user_type)
-          .neq("id", user.id)
-          .single()
-
-        if (existingProfile) {
-          toast({
-            title: "Phone number already in use",
-            description: `This phone number is already registered with another ${currentProfile.user_type} account. You can use the same phone for both personal and business accounts, but not for two accounts of the same type.`,
-            variant: "destructive",
-          })
-          setIsLoading(false)
-          return
-        }
-      }
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           full_name: profile.name,
           phone: profile.phone.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id)
+        }),
+      })
 
-      if (error) {
-        // Check if it's a unique constraint violation
-        if (error.code === "23505" || error.message.includes("unique")) {
-          toast({
-            title: "Phone number already in use",
-            description: `This phone number is already registered with another ${currentProfile.user_type} account. You can use the same phone for both personal and business accounts, but not for two accounts of the same type.`,
-            variant: "destructive",
-          })
-        } else {
-          throw error
-        }
-        setIsLoading(false)
-        return
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to update profile")
       }
 
       toast({
@@ -173,30 +119,17 @@ export default function SettingsPage() {
   const handleDeleteAccount = async () => {
     setIsDeleting(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) {
-        throw new Error("Not authenticated")
+      const response = await fetch("/api/auth/delete-account", {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to delete account")
       }
 
-      // Delete all user data
-      // Note: Most tables have CASCADE DELETE, so deleting the profile will cascade
-      // However, we'll explicitly delete data to ensure everything is cleaned up
-      
-      // Delete profile (this will cascade to most related data)
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .delete()
-        .eq("id", user.id)
-
-      if (profileError) {
-        console.error("Error deleting profile:", profileError)
-        // Continue anyway as some data might have been deleted
-      }
-
-      // Sign out the user
-      await supabase.auth.signOut()
+      // Sign out
+      await fetch("/api/auth/signout", { method: "POST" })
 
       toast({
         title: "Account deleted",
@@ -204,8 +137,7 @@ export default function SettingsPage() {
       })
 
       // Redirect to home page
-      router.push("/")
-      router.refresh()
+      window.location.href = "/"
     } catch (err: any) {
       console.error("Error deleting account:", err)
       toast({

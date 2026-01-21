@@ -29,7 +29,6 @@ export function LoginForm() {
 
     try {
       const supabase = createClient()
-      
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
@@ -42,6 +41,19 @@ export function LoginForm() {
       }
 
       if (data.user) {
+        // Check if profile exists for the user
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single()
+
+        if (profileError || !profile) {
+          setError("No profile found for this account. Please contact support or sign up again.")
+          setIsLoading(false)
+          return
+        }
+
         // Update user type in profile based on selection
         await supabase
           .from("profiles")

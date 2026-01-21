@@ -91,12 +91,24 @@ export function SignupForm() {
       if (data.user) {
         // Wait a moment for the trigger to create the profile
         await new Promise(resolve => setTimeout(resolve, 500))
-        
+
         // Refresh the session to ensure we're authenticated
         await supabase.auth.refreshSession()
-        
-        // Try to update the profile (trigger should have created it)
-        // If it doesn't exist yet, the trigger will create it with metadata
+
+        // Check if profile exists for the user
+        const { data: profile, error: profileFetchError } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("id", data.user.id)
+          .single()
+
+        if (profileFetchError || !profile) {
+          setError("Account created, but profile setup failed. Please try signing up again or contact support.")
+          setIsLoading(false)
+          return
+        }
+
+        // Try to update the profile (should exist now)
         const { error: profileError } = await supabase
           .from("profiles")
           .update({
@@ -109,62 +121,9 @@ export function SignupForm() {
           .eq("id", data.user.id)
 
         if (profileError) {
-          // If profile doesn't exist yet, try upsert (should work after refresh)
-          if (profileError.message.includes("0 rows") || profileError.code === "PGRST116") {
-            const { error: upsertError } = await supabase.from("profiles").upsert({
-              id: data.user.id,
-              full_name: formData.name,
-              phone: formData.phone.trim() || null,
-              user_type: formData.mode,
-              business_name: formData.mode === "business" ? formData.businessName : null,
-            })
-            
-            if (upsertError) {
-              // If RLS error, the trigger should have created it with metadata
-              // This is acceptable - user can verify email and profile will be there
-              if (upsertError.message.includes("row-level security policy")) {
-                setSuccess(true)
-                setTimeout(() => {
-                  router.push("/login")
-                }, 3500)
-                return
-              }
-              
-              // Check if it's a unique constraint violation
-              if (upsertError.code === "23505" || upsertError.message.includes("unique")) {
-                setError(
-                  `This phone number is already registered with a ${formData.mode} account. ` +
-                  `You can use the same phone number for both personal and business accounts, but not for two accounts of the same type.`
-                )
-                setIsLoading(false)
-                return
-              }
-              
-              setError(upsertError.message || "Failed to create profile. Please try again.")
-              setIsLoading(false)
-              return
-            }
-          } else if (profileError.message.includes("row-level security policy")) {
-            // RLS error - trigger should have created profile with metadata
-            // This is acceptable, user can verify email
-            setSuccess(true)
-            setTimeout(() => {
-              router.push("/login")
-            }, 3500)
-            return
-          } else {
-            // Check if it's a unique constraint violation
-            if (profileError.code === "23505" || profileError.message.includes("unique")) {
-              setError(
-                `This phone number is already registered with a ${formData.mode} account. ` +
-                `You can use the same phone number for both personal and business accounts, but not for two accounts of the same type.`
-              )
-            } else {
-              setError(profileError.message || "Failed to update profile. Please try again.")
-            }
-            setIsLoading(false)
-            return
-          }
+          setError(profileError.message || "Failed to update profile. Please try again.")
+          setIsLoading(false)
+          return
         }
 
         setSuccess(true)

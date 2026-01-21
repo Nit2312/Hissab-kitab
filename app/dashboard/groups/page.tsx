@@ -8,7 +8,6 @@ import { GroupCard } from "@/components/groups/group-card"
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog"
 import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { formatDistanceToNow } from "date-fns"
 
 type Group = {
@@ -39,55 +38,31 @@ export default function GroupsPage() {
     const fetchGroups = async () => {
       setLoading(true)
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error("Not authenticated")
+        // Fetch groups
+        const groupsResponse = await fetch("/api/groups")
+        if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
+        const groupsData = await groupsResponse.json()
 
-        // Fetch groups where user is a member
-        const { data: groupMembers } = await supabase
-          .from("group_members")
-          .select("group_id")
-          .eq("user_id", user.id)
+        // Fetch members and expenses for each group
+        const groupsWithDetails = await Promise.all(
+          groupsData.map(async (group: any) => {
+            // Fetch members
+            const membersResponse = await fetch(`/api/groups/members?group_id=${group.id}`)
+            const members = membersResponse.ok ? await membersResponse.json() : []
 
-        const groupIds = groupMembers?.map(gm => gm.group_id) || []
+            // Fetch recent expenses for this group
+            const expensesResponse = await fetch("/api/expenses")
+            const allExpenses = expensesResponse.ok ? await expensesResponse.json() : []
+            const groupExpenses = allExpenses.filter((e: any) => e.group_id === group.id)
 
-        if (groupIds.length === 0) {
-          setGroups([])
-          setLoading(false)
-          return
-        }
-
-        // Fetch groups data
-        const { data: groupsData, error } = await supabase
-          .from("groups")
-          .select("*")
-          .in("id", groupIds)
-          .order("created_at", { ascending: false })
-
-        if (error) throw error
-
-        // Fetch members for each group
-        const groupsWithMembers = await Promise.all(
-          (groupsData || []).map(async (group) => {
-            const { data: members } = await supabase
-              .from("group_members")
-              .select("name, user_id")
-              .eq("group_id", group.id)
-
-            // Calculate expenses for this group
-            const { data: expenses } = await supabase
-              .from("expenses")
-              .select("amount, paid_by, created_at")
-              .eq("group_id", group.id)
-              .order("created_at", { ascending: false })
-              .limit(1)
-
-            const totalExpenses = expenses?.reduce((sum, e) => sum + Number(e.amount), 0) || 0
-            const lastActivityDate = expenses?.[0]?.created_at || null
+            const totalExpenses = groupExpenses.reduce((sum: number, e: any) => sum + Number(e.amount), 0)
+            const lastActivityDate = groupExpenses.length > 0 
+              ? groupExpenses.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date
+              : null
 
             return {
               ...group,
-              members: members || [],
+              members: members.map((m: any) => ({ name: m.name, user_id: m.user_id })),
               totalExpenses,
               yourBalance: 0, // TODO: Calculate actual balance
               balanceType: "settled" as const,
@@ -96,7 +71,7 @@ export default function GroupsPage() {
           })
         )
 
-        setGroups(groupsWithMembers)
+        setGroups(groupsWithDetails)
       } catch (err) {
         console.error("Error fetching groups:", err)
         setGroups([])
