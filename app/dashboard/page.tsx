@@ -1,110 +1,147 @@
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { getCurrentUser } from "@/lib/mongodb/server"
 import { PersonalDashboard } from "@/components/dashboard/personal-dashboard"
+import connectDB from "@/lib/mongodb/connect"
+import Group from "@/lib/mongodb/models/Group"
+import GroupMember from "@/lib/mongodb/models/GroupMember"
+import Expense from "@/lib/mongodb/models/Expense"
+import ExpenseSplit from "@/lib/mongodb/models/ExpenseSplit"
+import Settlement from "@/lib/mongodb/models/Settlement"
+import mongoose from "mongoose"
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   
   if (!user) {
-    redirect("/login")
+    redirect("/login?error=unauthorized")
   }
 
-  // Fetch user profile
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single()
-
-  const userType = profile?.user_type || "personal"
-  const userName = profile?.full_name || user.email?.split("@")[0] || "User"
+  const userType = user.user_type || "personal"
+  const userName = user.full_name || user.email?.split("@")[0] || "User"
 
   // If business user, redirect to khata
   if (userType === "business") {
     redirect("/dashboard/khata")
   }
 
-  // Fetch user's groups
-  const { data: groupMembers } = await supabase
-    .from("group_members")
-    .select("group_id")
-    .eq("user_id", user.id)
+  await connectDB()
+  const userId = new mongoose.Types.ObjectId(user.id)
 
-  const groupIds = groupMembers?.map(gm => gm.group_id) || []
+  // Fetch user's groups
+  const groupMembers = await GroupMember.find({ user_id: userId })
+  const groupIds = groupMembers.map(gm => gm.group_id)
 
   // Fetch groups data
-  const { data: groups } = await supabase
-    .from("groups")
-    .select("*")
-    .in("id", groupIds.length > 0 ? groupIds : ['00000000-0000-0000-0000-000000000000'])
+  const groups = groupIds.length > 0 
+    ? await Group.find({ _id: { $in: groupIds } })
+    : []
 
   // Fetch recent expenses
-  const { data: expenses } = await supabase
-    .from("expenses")
-    .select("*")
-    .or(`paid_by.eq.${user.id},group_id.in.(${groupIds.join(",")})`)
-    .order("created_at", { ascending: false })
+  const expenses = await Expense.find({
+    $or: [
+      { paid_by: userId },
+      { group_id: { $in: groupIds } }
+    ]
+  })
+    .sort({ created_at: -1 })
     .limit(10)
+    .lean()
 
   // Calculate balances from expense splits
   let youOwe = 0
   let youAreOwed = 0
 
   // Get user's group member IDs
-  const { data: userGroupMembers } = await supabase
-    .from("group_members")
-    .select("id")
-    .eq("user_id", user.id)
-
-  const memberIds = userGroupMembers?.map(gm => gm.id) || []
+  const userGroupMembers = await GroupMember.find({ user_id: userId })
+  const memberIds = userGroupMembers.map(gm => gm._id)
 
   if (memberIds.length > 0) {
     // Fetch expense splits where user is a member
-    const { data: expenseSplits } = await supabase
-      .from("expense_splits")
-      .select("*, expenses(*)")
-      .in("member_id", memberIds)
+    const expenseSplits = await ExpenseSplit.find({
+      member_id: { $in: memberIds }
+    }).populate('expense_id').lean()
 
     // Calculate what user owes (splits where user hasn't paid and expense wasn't paid by them)
-    expenseSplits?.forEach(split => {
-      const expense = split.expenses as any
-      if (expense && expense.paid_by !== user.id && !split.is_paid) {
+    for (const split of expenseSplits) {
+      const expense = split.expense_id as any
+      if (expense && expense.paid_by.toString() !== user.id && !split.is_paid) {
         youOwe += Number(split.amount)
       }
-    })
+    }
 
     // Calculate what user is owed (expenses user paid, splits by others)
-    const paidExpenseIds = expenses?.filter(e => e.paid_by === user.id).map(e => e.id) || []
+    const paidExpenseIds = expenses.filter(e => e.paid_by.toString() === user.id).map(e => e._id)
     if (paidExpenseIds.length > 0) {
-      const { data: otherSplits } = await supabase
-        .from("expense_splits")
-        .select("*, group_members!inner(user_id)")
-        .in("expense_id", paidExpenseIds)
-        .not("member_id", "in", `(${memberIds.join(",")})`)
-        .eq("is_paid", false)
+      const otherSplits = await ExpenseSplit.find({
+        expense_id: { $in: paidExpenseIds },
+        member_id: { $nin: memberIds },
+        is_paid: false
+      }).populate({
+        path: 'member_id',
+        populate: { path: 'user_id' }
+      }).lean()
 
-      otherSplits?.forEach(split => {
+      for (const split of otherSplits) {
         youAreOwed += Number(split.amount)
-      })
+      }
     }
   }
 
   // Fetch settlements
-  const { data: settlements } = await supabase
-    .from("settlements")
-    .select("*")
-    .or(`from_user_id.eq.${user.id},to_user_id.eq.${user.id}`)
-    .order("created_at", { ascending: false })
+  const settlements = await Settlement.find({
+    $or: [
+      { from_user_id: userId },
+      { to_user_id: userId }
+    ]
+  })
+    .sort({ created_at: -1 })
     .limit(5)
+    .lean()
+
+  // Convert MongoDB documents to plain objects with id field
+  const groupsData = groups.map(g => ({
+    id: g._id.toString(),
+    name: g.name,
+    description: g.description,
+    type: g.type,
+    created_by: g.created_by.toString(),
+    created_at: g.created_at.toISOString(),
+    updated_at: g.updated_at.toISOString(),
+  }))
+
+  const expensesData = expenses.map(e => ({
+    id: e._id.toString(),
+    group_id: e.group_id?.toString() || null,
+    description: e.description,
+    amount: e.amount,
+    category: e.category,
+    paid_by: e.paid_by.toString(),
+    split_type: e.split_type,
+    date: e.date.toISOString().split('T')[0],
+    notes: e.notes,
+    created_at: e.created_at.toISOString(),
+    updated_at: e.updated_at.toISOString(),
+  }))
+
+  const settlementsData = settlements.map(s => ({
+    id: s._id.toString(),
+    from_user_id: s.from_user_id.toString(),
+    to_user_id: s.to_user_id.toString(),
+    group_id: s.group_id?.toString() || null,
+    amount: s.amount,
+    payment_method: s.payment_method,
+    status: s.status,
+    notes: s.notes,
+    settled_at: s.settled_at.toISOString(),
+    created_at: s.created_at.toISOString(),
+  }))
 
   return (
     <PersonalDashboard
       userName={userName}
-      groups={groups || []}
-      expenses={expenses || []}
-      settlements={settlements || []}
+      groups={groupsData}
+      expenses={expensesData}
+      settlements={settlementsData}
       youOwe={youOwe}
       youAreOwed={youAreOwed}
       userId={user.id}

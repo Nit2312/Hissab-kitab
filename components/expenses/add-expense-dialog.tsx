@@ -2,7 +2,6 @@
 
 import React from "react"
 import { useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -21,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -39,49 +37,77 @@ const categories = [
 interface AddExpenseDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  defaultGroupId?: string
+  expense?: {
+    id: string
+    description: string
+    amount: number
+    category: string
+    date: string
+  }
+  onExpenseUpdated?: () => void
 }
 
-export function AddExpenseDialog({ open, onOpenChange }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, onExpenseUpdated }: AddExpenseDialogProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [groups, setGroups] = useState<Array<{ id: string; name: string }>>([])
+  const isEditMode = !!expense
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
     category: "",
-    group: "",
-    splitType: "equal",
+    group: defaultGroupId || "",
     date: new Date().toISOString().split("T")[0]
   })
+
+  // Update form data when defaultGroupId changes or dialog opens
+  React.useEffect(() => {
+    if (open) {
+      if (expense) {
+        // Edit mode - populate with expense data
+        setFormData({
+          description: expense.description,
+          amount: expense.amount.toString(),
+          category: expense.category,
+          group: defaultGroupId || "",
+          date: expense.date
+        })
+      } else if (defaultGroupId) {
+        // Add mode with default group
+        setFormData(prev => ({
+          ...prev,
+          group: defaultGroupId
+        }))
+      } else {
+        // Add mode without default group
+        setFormData(prev => ({
+          ...prev,
+          group: ""
+        }))
+      }
+    }
+    // Reset form when dialog closes
+    if (!open) {
+      setFormData({
+        description: "",
+        amount: "",
+        category: "",
+        group: defaultGroupId || "",
+        date: new Date().toISOString().split("T")[0]
+      })
+    }
+  }, [open, defaultGroupId, expense])
 
   // Fetch groups when dialog opens
   React.useEffect(() => {
     if (open) {
       const fetchGroups = async () => {
         try {
-          const supabase = createClient()
-          const { data: { user } } = await supabase.auth.getUser()
-          if (!user) return
-
-          // Fetch groups where user is a member
-          const { data: groupMembers } = await supabase
-            .from("group_members")
-            .select("group_id")
-            .eq("user_id", user.id)
-
-          const groupIds = groupMembers?.map(gm => gm.group_id) || []
-          if (groupIds.length === 0) {
-            setGroups([])
-            return
-          }
-
-          const { data: groupsData } = await supabase
-            .from("groups")
-            .select("id, name")
-            .in("id", groupIds)
-            .order("created_at", { ascending: false })
-
-          setGroups(groupsData || [])
+          const response = await fetch("/api/groups");
+          if (!response.ok) return;
+          const groupsData = await response.json();
+          setGroups(groupsData.map((g: any) => ({ id: g.id, name: g.name })));
         } catch (err) {
           console.error("Error fetching groups:", err)
         }
@@ -94,87 +120,73 @@ export function AddExpenseDialog({ open, onOpenChange }: AddExpenseDialogProps) 
     e.preventDefault()
     setIsLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("Not authenticated")
-
-      // Create the expense
-      const { data: expense, error: expenseError } = await supabase
-        .from("expenses")
-        .insert([
-          {
-            group_id: formData.group || null,
+      if (isEditMode && expense) {
+        // Update existing expense
+        const response = await fetch(`/api/expenses/${expense.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             description: formData.description,
             amount: parseFloat(formData.amount),
-            category: formData.category.toLowerCase() || "other",
-            paid_by: user.id,
-            split_type: formData.splitType,
+            category: formData.category || "other",
             date: formData.date,
-          }
-        ])
-        .select()
-        .single()
+          }),
+        })
 
-      if (expenseError) throw expenseError
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || "Failed to update expense")
+        }
 
-      // If expense is in a group, create expense splits
-      if (formData.group && expense) {
-        // Fetch group members
-        const { data: members } = await supabase
-          .from("group_members")
-          .select("id")
-          .eq("group_id", formData.group)
+        onOpenChange(false)
+        toast({
+          title: "Expense updated",
+          description: "Your expense has been successfully updated.",
+        })
+        if (onExpenseUpdated) {
+          onExpenseUpdated()
+        }
+      } else {
+        // Create new expense
+        const response = await fetch("/api/expenses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            description: formData.description,
+            amount: parseFloat(formData.amount),
+            category: formData.category || "other",
+            group_id: formData.group || null,
+            split_type: "equal",
+            date: formData.date,
+          }),
+        })
 
-        if (members && members.length > 0) {
-          const amount = parseFloat(formData.amount)
-          const splitAmount = amount / members.length
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || "Failed to add expense")
+        }
 
-          // Create splits for each member (excluding the payer if they're a member)
-          const splits = members
-            .filter(m => {
-              // For now, include all members. In a real scenario, you might want to exclude the payer
-              return true
-            })
-            .map(member => ({
-              expense_id: expense.id,
-              member_id: member.id,
-              amount: splitAmount,
-              is_paid: false,
-            }))
-
-          if (splits.length > 0) {
-            const { error: splitsError } = await supabase
-              .from("expense_splits")
-              .insert(splits)
-
-            if (splitsError) {
-              console.error("Error creating splits:", splitsError)
-              // Don't throw - expense is already created
-            }
-          }
+        onOpenChange(false)
+        setFormData({
+          description: "",
+          amount: "",
+          category: "",
+          group: defaultGroupId || "",
+          date: new Date().toISOString().split("T")[0]
+        })
+        toast({
+          title: "Expense added",
+          description: "Your expense has been successfully added.",
+        })
+        if (onExpenseUpdated) {
+          onExpenseUpdated()
         }
       }
-
-      onOpenChange(false)
-      setFormData({
-        description: "",
-        amount: "",
-        category: "",
-        group: "",
-        splitType: "equal",
-        date: new Date().toISOString().split("T")[0]
-      })
-      toast({
-        title: "Expense added",
-        description: "Your expense has been successfully added.",
-      })
-      // Refresh the page to show new expense
-      window.location.reload()
-    } catch (err) {
-      console.error("Error creating expense:", err)
+    } catch (err: any) {
+      console.error(`Error ${isEditMode ? 'updating' : 'creating'} expense:`, err)
       toast({
         title: "Error",
-        description: "Failed to add expense. Please try again.",
+        description: err.message || `Failed to ${isEditMode ? 'update' : 'add'} expense. Please try again.`,
         variant: "destructive",
       })
     } finally {
@@ -186,9 +198,9 @@ export function AddExpenseDialog({ open, onOpenChange }: AddExpenseDialogProps) 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Add Expense</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit Expense" : "Add Expense"}</DialogTitle>
           <DialogDescription>
-            Record a new expense and split it with your group.
+            {isEditMode ? "Update the expense details." : "Record a new expense and split it with your group."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -228,7 +240,7 @@ export function AddExpenseDialog({ open, onOpenChange }: AddExpenseDialogProps) 
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className={`grid gap-4 ${defaultGroupId ? 'grid-cols-1' : 'grid-cols-2'}`}>
               <div className="space-y-2">
                 <Label>Category</Label>
                 <Select
@@ -247,61 +259,29 @@ export function AddExpenseDialog({ open, onOpenChange }: AddExpenseDialogProps) 
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Group (Optional)</Label>
-                <Select
-                  value={formData.group || "none"}
-                  onValueChange={(value) => setFormData({ ...formData, group: value === "none" ? "" : value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select group (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Group</SelectItem>
-                    {groups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {!defaultGroupId && (
+                <div className="space-y-2">
+                  <Label>Group (Optional)</Label>
+                  <Select
+                    value={formData.group || "none"}
+                    onValueChange={(value) => setFormData({ ...formData, group: value === "none" ? "" : value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select group (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Group</SelectItem>
+                      {groups.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
-            <div className="space-y-3">
-              <Label>Split Type</Label>
-              <RadioGroup
-                value={formData.splitType}
-                onValueChange={(value) => setFormData({ ...formData, splitType: value })}
-                className="grid grid-cols-3 gap-4"
-              >
-                {[
-                  { value: "equal", label: "Equal", desc: "Split equally" },
-                  { value: "unequal", label: "Unequal", desc: "Custom amounts" },
-                  { value: "percentage", label: "Percentage", desc: "By percent" }
-                ].map((option) => (
-                  <Label
-                    key={option.value}
-                    htmlFor={option.value}
-                    className={`flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 p-3 transition-colors ${
-                      formData.splitType === option.value
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50"
-                    }`}
-                  >
-                    <RadioGroupItem value={option.value} id={option.value} className="sr-only" />
-                    <span className={`text-sm font-medium ${
-                      formData.splitType === option.value ? "text-primary" : "text-foreground"
-                    }`}>
-                      {option.label}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {option.desc}
-                    </span>
-                  </Label>
-                ))}
-              </RadioGroup>
-            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -311,10 +291,10 @@ export function AddExpenseDialog({ open, onOpenChange }: AddExpenseDialogProps) 
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Adding...
+                  {isEditMode ? "Updating..." : "Adding..."}
                 </>
               ) : (
-                "Add Expense"
+                isEditMode ? "Update Expense" : "Add Expense"
               )}
             </Button>
           </DialogFooter>

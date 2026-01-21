@@ -27,7 +27,6 @@ import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 
 import { useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 
 type Customer = {
   id: string
@@ -51,16 +50,10 @@ export default function CustomersPage() {
     const fetchCustomers = async () => {
       setLoading(true)
       try {
-        const supabase = createClient();
-        const user = (await supabase.auth.getUser()).data.user;
-        if (!user) throw new Error("Not authenticated");
-        const { data, error } = await supabase
-          .from("customers")
-          .select("id, name, phone, email, address, created_at")
-          .eq("owner_id", user.id)
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        setCustomers(data || []);
+        const response = await fetch("/api/customers");
+        if (!response.ok) throw new Error("Failed to fetch customers");
+        const data = await response.json();
+        setCustomers(data);
       } catch (err) {
         setCustomers([]);
       } finally {

@@ -3,7 +3,6 @@
 import React from "react"
 
 import { useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -50,39 +49,40 @@ export function SettleUpDialog({ open, onOpenChange, person }: SettleUpDialogPro
     e.preventDefault()
     setIsLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("Not authenticated")
-
-      if (!person) throw new Error("No person selected")
+      if (!person || !person.userId) {
+        throw new Error("User ID is required to record settlement")
+      }
 
       // Determine settlement amount
       const settlementAmount = formData.amount 
         ? parseFloat(formData.amount) 
         : person.amount
 
+      // Get current user
+      const userResponse = await fetch("/api/auth/user")
+      if (!userResponse.ok) throw new Error("Not authenticated")
+      const user = await userResponse.json()
+
       // Determine from_user_id and to_user_id
-      // Note: This is simplified - in a real app, you'd need to look up the actual user_id
-      // For now, we'll use a placeholder. You might need to store user_id in the person object
-      const fromUserId = person.type === "you_owe" ? user.id : person.id // person.id should be user_id
-      const toUserId = person.type === "you_owe" ? person.id : user.id
+      const fromUserId = person.type === "you_owe" ? user.id : person.userId
+      const toUserId = person.type === "you_owe" ? person.userId : user.id
 
       // Create settlement
-      const { error } = await supabase.from("settlements").insert([
-        {
-          from_user_id: fromUserId,
+      const response = await fetch("/api/settlements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           to_user_id: toUserId,
           amount: settlementAmount,
           payment_method: formData.method === "bank" ? "bank_transfer" : formData.method,
-          status: "completed",
           settled_at: formData.date,
-        }
-      ])
+        }),
+      })
 
-      if (error) throw error
-
-      // TODO: Update expense_splits to mark as paid
-      // This would require querying expense_splits and updating is_paid flag
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to record settlement")
+      }
 
       onOpenChange(false)
       setFormData({
@@ -96,11 +96,11 @@ export function SettleUpDialog({ open, onOpenChange, person }: SettleUpDialogPro
       })
       // Refresh the page
       window.location.reload()
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating settlement:", err)
       toast({
         title: "Error",
-        description: "Failed to record settlement. Please try again.",
+        description: err.message || "Failed to record settlement. Please try again.",
         variant: "destructive",
       })
     } finally {

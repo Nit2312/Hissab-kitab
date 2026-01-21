@@ -3,7 +3,6 @@
 import React from "react"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -49,17 +48,10 @@ export function AddTransactionDialog({ open, onOpenChange }: AddTransactionDialo
     if (open) {
       const fetchCustomers = async () => {
         try {
-          const supabase = createClient()
-          const { data: { user } } = await supabase.auth.getUser()
-          if (!user) return
-
-          const { data: customersData } = await supabase
-            .from("customers")
-            .select("id, name")
-            .eq("owner_id", user.id)
-            .order("name", { ascending: true })
-
-          setCustomers(customersData || [])
+          const response = await fetch("/api/customers");
+          if (!response.ok) return;
+          const customersData = await response.json();
+          setCustomers(customersData.map((c: any) => ({ id: c.id, name: c.name })))
         } catch (err) {
           console.error("Error fetching customers:", err)
         }
@@ -72,22 +64,22 @@ export function AddTransactionDialog({ open, onOpenChange }: AddTransactionDialo
     e.preventDefault()
     setIsLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("Not authenticated")
-
-      const { error } = await supabase.from("khata_transactions").insert([
-        {
-          owner_id: user.id,
+      const response = await fetch("/api/khata/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           customer_id: formData.customerId,
           type: formData.type,
           amount: parseFloat(formData.amount),
           description: formData.description || null,
           date: formData.date,
-        }
-      ])
+        }),
+      });
 
-      if (error) throw error
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to add transaction");
+      }
 
       onOpenChange(false)
       setFormData({
@@ -103,11 +95,11 @@ export function AddTransactionDialog({ open, onOpenChange }: AddTransactionDialo
       })
       // Refresh the page to show new transaction
       window.location.reload()
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating transaction:", err)
       toast({
         title: "Error",
-        description: "Failed to add transaction. Please try again.",
+        description: err.message || "Failed to add transaction. Please try again.",
         variant: "destructive",
       })
     } finally {

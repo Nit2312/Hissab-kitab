@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -106,34 +105,48 @@ export default function SettlementsPage() {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error("Not authenticated")
+        // Get current user
+        const userResponse = await fetch("/api/auth/user")
+        if (!userResponse.ok) throw new Error("Not authenticated")
+        const user = await userResponse.json()
 
         // Fetch settlements history
-        const { data: settlements } = await supabase
-          .from("settlements")
-          .select("*, from_user:from_user_id(id, email), to_user:to_user_id(id, email)")
-          .or(`from_user_id.eq.${user.id},to_user_id.eq.${user.id}`)
-          .order("created_at", { ascending: false })
-          .limit(20)
+        const settlementsResponse = await fetch("/api/settlements")
+        if (!settlementsResponse.ok) throw new Error("Failed to fetch settlements")
+        const settlements = await settlementsResponse.json()
 
-        const history: SettlementHistory[] = (settlements || []).map(s => {
-          const isFromUser = s.from_user_id === user.id
-          const otherUser = isFromUser ? s.to_user : s.from_user
-          const name = otherUser?.email?.split("@")[0] || "Unknown"
-          const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+        // Fetch user details for settlements
+        const history: SettlementHistory[] = await Promise.all(
+          settlements.map(async (s: any) => {
+            const isFromUser = s.from_user_id === user.id
+            const otherUserId = isFromUser ? s.to_user_id : s.from_user_id
 
-          return {
-            id: s.id,
-            name,
-            initials,
-            amount: Number(s.amount),
-            type: isFromUser ? "paid" : "received",
-            date: s.settled_at || s.created_at,
-            method: s.payment_method || "other",
-          }
-        })
+            // Try to get other user's name
+            let otherUserName = "Unknown"
+            try {
+              const otherUserResponse = await fetch(`/api/users/${otherUserId}`)
+              if (otherUserResponse.ok) {
+                const otherUser = await otherUserResponse.json()
+                otherUserName = otherUser.full_name || otherUser.email?.split("@")[0] || "Unknown"
+              }
+            } catch {
+              // Use email if available
+              otherUserName = "User"
+            }
+
+            const initials = otherUserName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+
+            return {
+              id: s.id,
+              name: otherUserName,
+              initials,
+              amount: Number(s.amount),
+              type: isFromUser ? "paid" : "received",
+              date: s.settled_at || s.created_at,
+              method: s.payment_method || "other",
+            }
+          })
+        )
 
         setSettlementHistory(history)
 

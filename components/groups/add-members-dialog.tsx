@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -47,11 +46,6 @@ export function AddMembersDialog({
 
     setIsLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) throw new Error("Not authenticated")
-
       // Parse member entries
       const memberEntries = members
         .split(",")
@@ -67,68 +61,82 @@ export function AddMembersDialog({
         memberEntries.map(async (entry) => {
           // Check if it's an email or phone
           const isEmail = entry.includes("@")
-          const isPhone = /^[\d\s\+\-\(\)]+$/.test(entry) // Check if it looks like a phone number
+          const isPhone = /^[\d\s\+\-\(\)]+$/.test(entry)
           
           let foundUser = null
           
-          // If it's a phone number, search for existing user
-          if (isPhone) {
-            const cleanPhone = entry.replace(/[\s\-\(\)]/g, "") // Clean phone number
+          // If it's a phone number or email, search for existing user
+          if (isPhone || isEmail) {
+            const cleanPhone = isPhone ? entry.replace(/[\s\-\(\)\+]/g, "") : null
             
-            // Search in profiles table
-            const { data: profiles } = await supabase
-              .from("profiles")
-              .select("id, full_name, phone")
-              .ilike("phone", `%${cleanPhone}%`)
-              .limit(1)
-            
-            if (profiles && profiles.length > 0) {
-              foundUser = profiles[0]
-              console.log("Found existing user by phone:", foundUser)
+            // Search for user by phone or email via API
+            try {
+              const searchUrl = isPhone 
+                ? `/api/users/search?phone=${encodeURIComponent(cleanPhone!)}`
+                : `/api/users/search?email=${encodeURIComponent(entry)}`
+              
+              const searchResponse = await fetch(searchUrl)
+              if (searchResponse.ok) {
+                const userData = await searchResponse.json()
+                if (userData && userData.id) {
+                  foundUser = userData
+                }
+              }
+            } catch (err) {
+              // Ignore search errors
+              console.error('Error searching for user:', err)
             }
           }
           
           // If user found, add as registered member
           if (foundUser) {
+            // Always use the user's name, email, or phone (in that order)
+            const displayName = foundUser.full_name || foundUser.email?.split('@')[0] || foundUser.phone || entry;
             return {
-              group_id: groupId,
-              user_id: foundUser.id,
-              name: foundUser.full_name || entry,
+              name: displayName,
+              email: foundUser.email,
               phone: foundUser.phone,
-              is_registered: true,
+              user_id: foundUser.id,
             }
           }
           
           // Otherwise, add as guest
+          // For guests, use a more friendly name format
+          let guestName = entry;
+          if (isPhone) {
+            // Format phone number nicely
+            guestName = entry.replace(/(\d{2})(\d{5})(\d{5})/, '+$1 $2 $3');
+          }
+          
           return {
-            group_id: groupId,
-            name: entry,
-            email: isEmail ? entry : null,
-            phone: isPhone ? entry : null,
-            is_registered: false,
+            name: guestName,
+            email: isEmail ? entry : undefined,
+            phone: isPhone ? entry : undefined,
           }
         })
       )
 
-      console.log("Adding members to group:", { groupId, members: membersToAdd })
+      const response = await fetch("/api/groups/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          group_id: groupId,
+          members: membersToAdd,
+        }),
+      })
 
-      const { error } = await supabase
-        .from("group_members")
-        .insert(membersToAdd)
-
-      if (error) {
-        console.error("Error adding members:", error)
-        throw new Error(`Failed to add members: ${error.message}`)
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to add members")
       }
 
-      const registeredCount = membersToAdd.filter(m => m.is_registered).length
-      const guestCount = membersToAdd.filter(m => !m.is_registered).length
+      const result = await response.json()
+      const registeredCount = result.members.filter((m: any) => m.user_id).length
+      const guestCount = result.members.length - registeredCount
 
       toast({
         title: "Members added",
-        description: registeredCount > 0 
-          ? `Added ${registeredCount} registered user${registeredCount > 1 ? 's' : ''} and ${guestCount} guest${guestCount !== 1 ? 's' : ''}`
-          : `Successfully added ${memberEntries.length} member${memberEntries.length > 1 ? 's' : ''}`,
+        description: `${result.members.length} member${result.members.length > 1 ? 's' : ''} added successfully`,
       })
 
       setMembers("")
@@ -171,7 +179,7 @@ export function AddMembersDialog({
                 disabled={isLoading}
               />
               <p className="text-xs text-muted-foreground">
-                💡 Enter phone numbers to auto-find registered users. Separate multiple entries with commas.
+                💡 Enter phone numbers or emails to auto-find registered users. Separate multiple entries with commas.
               </p>
             </div>
           </div>

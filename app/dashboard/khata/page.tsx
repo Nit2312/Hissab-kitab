@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -58,82 +57,33 @@ export default function KhataPage() {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error("Not authenticated")
+        // Fetch customers with balances
+        const customersResponse = await fetch("/api/khata/customers")
+        if (!customersResponse.ok) throw new Error("Failed to fetch customers")
+        const customersWithBalances: Customer[] = await customersResponse.json()
 
-        // Fetch customers
-        const { data: customersData } = await supabase
-          .from("customers")
-          .select("id, name, phone")
-          .eq("owner_id", user.id)
-          .order("name", { ascending: true })
-
-        if (!customersData) {
-          setCustomers([])
-          setLoading(false)
-          return
-        }
-
-        // Fetch transactions for all customers
-        const { data: transactionsData } = await supabase
-          .from("khata_transactions")
-          .select("id, customer_id, type, amount, date, description, customers(name)")
-          .eq("owner_id", user.id)
-          .order("date", { ascending: false })
-          .limit(50)
-
-        // Calculate balances for each customer
-        const customersWithBalances: Customer[] = customersData.map(customer => {
-          const customerTransactions = transactionsData?.filter(t => t.customer_id === customer.id) || []
-          
-          let balance = 0
-          let totalCredit = 0
-          let totalPaid = 0
-          let lastTransaction: string | null = null
-
-          customerTransactions.forEach(trans => {
-            if (trans.type === "credit") {
-              balance += Number(trans.amount)
-              totalCredit += Number(trans.amount)
-            } else {
-              balance -= Number(trans.amount)
-              totalPaid += Number(trans.amount)
-            }
-            if (!lastTransaction || trans.date > lastTransaction) {
-              lastTransaction = trans.date
-            }
-          })
-
-          return {
-            id: customer.id,
-            name: customer.name,
-            phone: customer.phone,
-            balance: Math.max(0, balance),
-            type: balance > 0 ? "credit" : "settled",
-            lastTransaction,
-            totalCredit,
-            totalPaid,
-          }
-        })
+        // Fetch recent transactions
+        const transactionsResponse = await fetch("/api/khata/transactions")
+        if (!transactionsResponse.ok) throw new Error("Failed to fetch transactions")
+        const transactionsData = await transactionsResponse.json()
 
         // Calculate summary stats
         const outstanding = customersWithBalances.reduce((sum, c) => sum + c.balance, 0)
         const today = new Date().toISOString().split("T")[0]
-        const todayTransactions = transactionsData?.filter(t => t.date === today) || []
+        const todayTransactions = transactionsData.filter((t: any) => t.date === today) || []
         const collectedToday = todayTransactions
-          .filter(t => t.type === "payment")
-          .reduce((sum, t) => sum + Number(t.amount), 0)
+          .filter((t: any) => t.type === "payment")
+          .reduce((sum: number, t: any) => sum + Number(t.amount), 0)
         const creditToday = todayTransactions
-          .filter(t => t.type === "credit")
-          .reduce((sum, t) => sum + Number(t.amount), 0)
+          .filter((t: any) => t.type === "credit")
+          .reduce((sum: number, t: any) => sum + Number(t.amount), 0)
 
         // Format recent transactions
-        const recent: Transaction[] = (transactionsData || [])
+        const recent: Transaction[] = transactionsData
           .slice(0, 10)
-          .map(t => ({
+          .map((t: any) => ({
             id: t.id,
-            customer: (t.customers as any)?.name || "Unknown",
+            customer: t.customer || "Unknown",
             type: t.type as "credit" | "payment",
             amount: Number(t.amount),
             date: t.date,

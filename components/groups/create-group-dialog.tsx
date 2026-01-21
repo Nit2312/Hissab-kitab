@@ -3,7 +3,6 @@
 import React from "react"
 
 import { useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -45,103 +44,37 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
     e.preventDefault()
     setIsLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      console.log("Starting group creation:", { 
-        user_id: user?.id, 
-        group_name: formData.name,
-        group_type: formData.type 
-      })
-      
-      if (!user) throw new Error("Not authenticated")
-
-      // Create the group
-      const { data: group, error: groupError } = await supabase
-        .from("groups")
-        .insert([
-          {
-            name: formData.name.trim(),
-            type: formData.type,
-            created_by: user.id,
-          }
-        ])
-        .select()
-        .single()
-
-      if (groupError) {
-        console.error("Group creation error details:", {
-          error: groupError,
-          message: groupError.message,
-          code: groupError.code,
-          details: groupError.details,
-          hint: groupError.hint,
-          stringified: JSON.stringify(groupError, null, 2)
-        })
-        throw new Error(`Failed to create group: ${groupError.message || groupError.code || 'Unknown error'}`)
-      }
-
-      if (!group) {
-        console.error("No group data returned after insert")
-        throw new Error("Group was created but no data was returned")
-      }
-
-      console.log("Group created successfully:", group)
-
-      // Add current user as a member
-      const userName = user.email?.split("@")[0] || user.user_metadata?.full_name || `User ${user.id.slice(0, 8)}`
-      console.log("Adding user as member:", { group_id: group.id, user_id: user.id, name: userName })
-      
-      const { error: memberError } = await supabase.from("group_members").insert([
-        {
-          group_id: group.id,
-          user_id: user.id,
-          name: userName,
-          is_registered: true,
-        }
-      ])
-
-      if (memberError) {
-        console.error("Error adding user as member:", {
-          error: memberError,
-          message: memberError.message,
-          code: memberError.code,
-          details: memberError.details,
-          hint: memberError.hint
-        })
-        throw new Error(`Failed to add you as a member: ${memberError.message || memberError.code || 'Unknown error'}`)
-      }
-      
-      console.log("User added as member successfully")
-
-      // Parse and add other members if provided
+      // Parse members if provided
+      let members: any[] = []
       if (formData.members.trim()) {
         const memberEntries = formData.members
           .split(",")
           .map(m => m.trim())
           .filter(m => m.length > 0)
 
-        const membersToAdd = memberEntries.map(entry => {
-          // Check if it's an email or phone
+        members = memberEntries.map(entry => {
           const isEmail = entry.includes("@")
           return {
-            group_id: group.id,
             name: entry,
-            email: isEmail ? entry : null,
-            phone: !isEmail ? entry : null,
-            is_registered: false,
+            email: isEmail ? entry : undefined,
+            phone: !isEmail ? entry : undefined,
           }
         })
+      }
 
-        if (membersToAdd.length > 0) {
-          console.log("Adding additional members:", membersToAdd)
-          const { error: additionalMembersError } = await supabase.from("group_members").insert(membersToAdd)
-          if (additionalMembersError) {
-            console.error("Error adding additional members:", additionalMembersError)
-            throw additionalMembersError
-          }
-          console.log("Additional members added successfully")
-        }
+      const response = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          type: formData.type,
+          members,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to create group")
       }
 
       toast({
@@ -154,10 +87,9 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
       window.location.reload()
     } catch (err: any) {
       console.error("Error creating group:", err)
-      const errorMessage = err?.message || err?.error?.message || "Failed to create group. Please try again."
       toast({
         title: "Error",
-        description: errorMessage,
+        description: err.message || "Failed to create group. Please try again.",
         variant: "destructive",
       })
     } finally {

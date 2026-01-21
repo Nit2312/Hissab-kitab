@@ -1,8 +1,15 @@
+"use client"
+
 import Link from "next/link"
 import { LoginForm } from "@/components/auth/login-form"
 import { BookOpen } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { Suspense } from "react"
 
-export default function LoginPage() {
+function LoginPageContent() {
+  const searchParams = useSearchParams()
+  const error = searchParams.get("error")
+
   return (
     <div className="flex min-h-screen">
       {/* Left Side - Form */}
@@ -22,7 +29,13 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <LoginForm />
+          {error === "unauthorized" && (
+            <div className="mb-4 p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+              Please sign in to access this page.
+            </div>
+          )}
+
+          <LoginForm initialError={error === "unauthorized" ? "Please sign in to continue." : null} />
         </div>
       </div>
 
@@ -43,5 +56,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    }>
+      <LoginPageContent />
+    </Suspense>
   )
 }
