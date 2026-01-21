@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +18,17 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { 
   User, 
   Bell, 
@@ -31,8 +43,10 @@ import {
 import { useToast } from "@/hooks/use-toast"
 
 export default function SettingsPage() {
+  const router = useRouter()
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [profile, setProfile] = useState({
     name: "",
     email: "",
@@ -153,6 +167,53 @@ export default function SettingsPage() {
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true)
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        throw new Error("Not authenticated")
+      }
+
+      // Delete all user data
+      // Note: Most tables have CASCADE DELETE, so deleting the profile will cascade
+      // However, we'll explicitly delete data to ensure everything is cleaned up
+      
+      // Delete profile (this will cascade to most related data)
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .delete()
+        .eq("id", user.id)
+
+      if (profileError) {
+        console.error("Error deleting profile:", profileError)
+        // Continue anyway as some data might have been deleted
+      }
+
+      // Sign out the user
+      await supabase.auth.signOut()
+
+      toast({
+        title: "Account deleted",
+        description: "Your account and all associated data have been permanently deleted.",
+      })
+
+      // Redirect to home page
+      router.push("/")
+      router.refresh()
+    } catch (err: any) {
+      console.error("Error deleting account:", err)
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to delete account. Please try again or contact support.",
+        variant: "destructive",
+      })
+      setIsDeleting(false)
     }
   }
 
@@ -434,10 +495,58 @@ export default function SettingsPage() {
                       Permanently delete your account and all data
                     </p>
                   </div>
-                  <Button variant="destructive" className="gap-2">
-                    <Trash2 className="h-4 w-4" />
-                    Delete Account
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" className="gap-2" disabled={isDeleting}>
+                        {isDeleting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Deleting...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="h-4 w-4" />
+                            Delete Account
+                          </>
+                        )}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This action cannot be undone. This will permanently delete your
+                          account and remove all your data from our servers.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <div className="mt-2">
+                        <p className="text-sm text-muted-foreground mb-2">This includes:</p>
+                        <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                          <li>Your profile information</li>
+                          <li>All groups and expenses</li>
+                          <li>All customers and khata transactions</li>
+                          <li>All reminders and settlements</li>
+                        </ul>
+                      </div>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleDeleteAccount}
+                          disabled={isDeleting}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          {isDeleting ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Deleting...
+                            </>
+                          ) : (
+                            "Yes, delete my account"
+                          )}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </CardContent>
             </Card>

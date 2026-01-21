@@ -20,7 +20,8 @@ interface ExpenseCardProps {
     category: string
     group: string
     splitType: string
-    participants: string[]
+    participants?: string[]
+    participantCount?: number
   }
 }
 
@@ -31,7 +32,8 @@ export function ExpenseCard({ expense }: ExpenseCardProps) {
     year: "numeric"
   })
 
-  const yourShare = expense.amount / expense.participants.length
+  const participantCount = expense.participants?.length || expense.participantCount || 1
+  const yourShare = expense.amount / participantCount
   const isPaidByYou = expense.paidBy === "You"
 
   return (
@@ -58,7 +60,7 @@ export function ExpenseCard({ expense }: ExpenseCardProps) {
                 </span>
               </div>
               <p className="text-sm text-muted-foreground">
-                {expense.paidBy} paid - Split {expense.splitType}ly between {expense.participants.length} people
+                {expense.paidBy} paid - Split {expense.splitType}ly between {participantCount} {participantCount === 1 ? 'person' : 'people'}
               </p>
             </div>
           </div>
