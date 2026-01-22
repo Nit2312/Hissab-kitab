@@ -54,14 +54,29 @@ export function ManageCategoriesDialog({ children, onCategoriesChange }: ManageC
   const fetchCategories = async () => {
     try {
       const response = await fetch("/api/categories")
-      if (!response.ok) throw new Error("Failed to fetch categories")
+      if (!response.ok) {
+        // If response is not ok, try to get error details but don't crash
+        let errorMessage = "Failed to load categories"
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch (parseError) {
+          console.error("Failed to parse error response:", parseError)
+        }
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        })
+        return
+      }
       const data = await response.json()
       setCategories(data)
     } catch (err) {
       console.error("Error fetching categories:", err)
       toast({
         title: "Error",
-        description: "Failed to load categories",
+        description: "Failed to load categories. Please try again.",
         variant: "destructive",
       })
     }
@@ -78,12 +93,19 @@ export function ManageCategoriesDialog({ children, onCategoriesChange }: ManageC
         body: JSON.stringify({ name: newCategoryName.trim() }),
       })
 
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to add category")
+      let responseData
+      try {
+        responseData = await response.json()
+      } catch (parseError) {
+        console.error("Failed to parse response:", parseError)
+        throw new Error("Invalid server response")
       }
 
-      const newCategory = await response.json()
+      if (!response.ok) {
+        throw new Error(responseData.error || "Failed to add category")
+      }
+
+      const newCategory = responseData
       setCategories(prev => [...prev, newCategory])
       setNewCategoryName("")
       onCategoriesChange?.()
@@ -95,7 +117,7 @@ export function ManageCategoriesDialog({ children, onCategoriesChange }: ManageC
       console.error("Error adding category:", err)
       toast({
         title: "Error",
-        description: err.message || "Failed to add category",
+        description: err.message || "Failed to add category. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -114,12 +136,19 @@ export function ManageCategoriesDialog({ children, onCategoriesChange }: ManageC
         body: JSON.stringify({ name: newCategoryName.trim() }),
       })
 
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to update category")
+      let responseData
+      try {
+        responseData = await response.json()
+      } catch (parseError) {
+        console.error("Failed to parse response:", parseError)
+        throw new Error("Invalid server response")
       }
 
-      const updatedCategory = await response.json()
+      if (!response.ok) {
+        throw new Error(responseData.error || "Failed to update category")
+      }
+
+      const updatedCategory = responseData
       setCategories(prev => prev.map(cat => 
         cat.id === editingCategory.id ? updatedCategory : cat
       ))
@@ -134,7 +163,7 @@ export function ManageCategoriesDialog({ children, onCategoriesChange }: ManageC
       console.error("Error updating category:", err)
       toast({
         title: "Error",
-        description: err.message || "Failed to update category",
+        description: err.message || "Failed to update category. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -151,9 +180,16 @@ export function ManageCategoriesDialog({ children, onCategoriesChange }: ManageC
         method: "DELETE",
       })
 
+      let responseData
+      try {
+        responseData = await response.json()
+      } catch (parseError) {
+        console.error("Failed to parse response:", parseError)
+        throw new Error("Invalid server response")
+      }
+
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to delete category")
+        throw new Error(responseData.error || "Failed to delete category")
       }
 
       setDeleteCategoryId(null)
@@ -167,7 +203,7 @@ export function ManageCategoriesDialog({ children, onCategoriesChange }: ManageC
       console.error("Error deleting category:", err)
       toast({
         title: "Error",
-        description: err.message || "Failed to delete category",
+        description: err.message || "Failed to delete category. Please try again.",
         variant: "destructive",
       })
     } finally {

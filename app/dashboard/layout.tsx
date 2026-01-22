@@ -1,17 +1,24 @@
+"use client"
+
 import React from "react"
-import { redirect } from "next/navigation"
-import { getCurrentUser } from "@/lib/auth/auth"
+import { useRequireAuth } from "@/hooks/use-require-auth"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const user = await getCurrentUser()
-  
+  const { user, loading } = useRequireAuth()
+
+  if (loading) {
+    return <div className="p-8 text-center">Loading...</div>
+  }
   if (!user) {
-    redirect("/login?error=unauthorized")
+    if (typeof window !== "undefined") {
+      window.location.href = "/login?error=unauthorized"
+    }
+    return null
   }
 
   const userType = user.user_type || "personal"

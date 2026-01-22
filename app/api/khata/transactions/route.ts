@@ -21,24 +21,36 @@ export async function GET(request: NextRequest) {
 
     const transactions = transactionsSnapshot.docs.map(doc => docToObject(doc));
 
-    // Fetch customer details for each transaction
-    const transactionsData = await Promise.all(
-      transactions.map(async (t) => {
-        const customerDoc = await db.collection(COLLECTIONS.CUSTOMERS).doc(t.customer_id).get();
-        const customer = customerDoc.exists ? customerDoc.data() : null;
+    // Collect unique customer_ids
+    const customerIds = Array.from(new Set(transactions.map(t => t.customer_id).filter(Boolean)));
 
-        return {
-          id: t.id,
-          customer_id: t.customer_id,
-          customer: customer?.name || 'Unknown',
-          type: t.type,
-          amount: t.amount,
-          date: t.date instanceof Date ? t.date.toISOString().split('T')[0] : t.date.split('T')[0],
-          description: t.description || null,
-          created_at: t.created_at instanceof Date ? t.created_at.toISOString() : t.created_at,
-        };
-      })
-    );
+    // Batch fetch customers (Firestore 'in' query limit is 10, so batch if needed)
+    let customers: any[] = [];
+    for (let i = 0; i < customerIds.length; i += 10) {
+      const batchIds = customerIds.slice(i, i + 10);
+      const batchSnapshot = await db.collection(COLLECTIONS.CUSTOMERS)
+        .where('__name__', 'in', batchIds)
+        .get();
+      customers = customers.concat(batchSnapshot.docs.map(doc => docToObject(doc)));
+    }
+
+    // Map customer_id to name
+    const customerMap = new Map<string, string>();
+    customers.forEach(c => {
+      customerMap.set(c.id, c.name || 'Unknown');
+    });
+
+    // Attach customer name to each transaction
+    const transactionsData = transactions.map(t => ({
+      id: t.id,
+      customer_id: t.customer_id,
+      customer: customerMap.get(t.customer_id) || 'Unknown',
+      type: t.type,
+      amount: t.amount,
+      date: t.date instanceof Date ? t.date.toISOString().split('T')[0] : t.date.split('T')[0],
+      description: t.description || null,
+      created_at: t.created_at instanceof Date ? t.created_at.toISOString() : t.created_at,
+    }));
 
     return NextResponse.json(transactionsData);
   } catch (error: any) {

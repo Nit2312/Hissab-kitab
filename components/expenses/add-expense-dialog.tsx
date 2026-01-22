@@ -23,6 +23,11 @@ import {
 import { Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
+interface Category {
+  id: string
+  name: string
+}
+
 interface AddExpenseDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -40,7 +45,7 @@ interface AddExpenseDialogProps {
 export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, onExpenseUpdated }: AddExpenseDialogProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
-  const [categories, setCategories] = useState<string[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const isEditMode = !!expense
   const [formData, setFormData] = useState({
     description: "",
@@ -54,12 +59,31 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
     const fetchCategories = async () => {
       try {
         const response = await fetch("/api/categories")
-        if (response.ok) {
-          const data = await response.json()
-          setCategories(data)
+        if (!response.ok) {
+          // If response is not ok, try to get error details but don't crash
+          let errorMessage = "Failed to load categories"
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorMessage
+          } catch (parseError) {
+            console.error("Failed to parse error response:", parseError)
+          }
+          toast({
+            title: "Error",
+            description: errorMessage,
+            variant: "destructive",
+          })
+          return
         }
+        const data = await response.json()
+        setCategories(data)
       } catch (err) {
         console.error("Error fetching categories:", err)
+        toast({
+          title: "Error",
+          description: "Failed to load categories. Please try again.",
+          variant: "destructive",
+        })
       }
     }
     if (open) {
@@ -225,8 +249,8 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
                 </SelectTrigger>
                 <SelectContent>
                   {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
+                    <SelectItem key={category.id} value={category.name}>
+                      {category.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

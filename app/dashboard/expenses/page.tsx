@@ -10,12 +10,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Search, Filter } from "lucide-react"
+import { Plus, Search, Filter, Settings } from "lucide-react"
 import { ExpenseCard } from "@/components/expenses/expense-card"
 import { AddExpenseDialog } from "@/components/expenses/add-expense-dialog"
+import { ManageCategoriesDialog } from "@/components/expenses/manage-categories-dialog"
 import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import Loading from "./loading"
+
+interface Category {
+  id: string
+  name: string
+}
 
 
 type Expense = {
@@ -37,6 +43,7 @@ export default function ExpensesPage() {
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [userType, setUserType] = useState<"personal" | "business">("personal")
   const searchParams = useSearchParams()
@@ -53,6 +60,13 @@ export default function ExpensesPage() {
         const userData = await userResponse.json();
         setUserType(userData.user_type || "personal");
         setCurrentUserId(userData.id || "");
+
+        // Fetch categories
+        const categoriesResponse = await fetch("/api/categories");
+        if (categoriesResponse.ok) {
+          const categoriesData = await categoriesResponse.json();
+          setCategories(categoriesData);
+        }
 
         // Fetch expenses
         const expensesResponse = await fetch("/api/expenses", { credentials: "include" });
@@ -74,6 +88,23 @@ export default function ExpensesPage() {
     const matchesCategory = categoryFilter === "all" || expense.category === categoryFilter
     return matchesSearch && matchesCategory
   })
+
+  const handleCategoriesChange = () => {
+    // Refetch categories when they are updated
+    fetch("/api/categories")
+      .then(res => {
+        if (!res.ok) {
+          console.error("Failed to refetch categories:", res.status)
+          return []
+        }
+        return res.json()
+      })
+      .then(data => setCategories(data))
+      .catch(err => {
+        console.error("Error refetching categories:", err)
+        // Don't crash the UI, just log the error
+      })
+  }
 
   return (
     <Suspense fallback={<Loading />}>
@@ -97,7 +128,7 @@ export default function ExpensesPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <div className="relative flex-1 sm:max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -114,14 +145,18 @@ export default function ExpensesPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              <SelectItem value="Food">Food</SelectItem>
-              <SelectItem value="Travel">Travel</SelectItem>
-              <SelectItem value="Bills">Bills</SelectItem>
-              <SelectItem value="Groceries">Groceries</SelectItem>
-              <SelectItem value="Shopping">Shopping</SelectItem>
-              <SelectItem value="Entertainment">Entertainment</SelectItem>
+              {categories.map((category: Category) => (
+                <SelectItem key={category.id} value={category.name}>
+                  {category.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          <ManageCategoriesDialog onCategoriesChange={handleCategoriesChange}>
+            <Button variant="outline" size="icon">
+              <Settings className="h-4 w-4" />
+            </Button>
+          </ManageCategoriesDialog>
         </div>
 
         {/* Expenses List */}

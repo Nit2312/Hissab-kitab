@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -146,13 +147,86 @@ export default function DashboardPage() {
     }
   }, [expenses, settlements])
 
-  const formatINR = (amount: number) => {
-    return new Intl.NumberFormat("en-IN", {
+
+  const formatINR = useMemo(() => {
+    const formatter = new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
       maximumFractionDigits: 0,
-    }).format(amount)
-  }
+    });
+    return (amount: number) => formatter.format(amount);
+  }, []);
+
+  const RecentExpenses = React.memo(({ recent, loading }: { recent: any[]; loading: boolean }) => (
+    <Card className="lg:col-span-2">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">Recent Expenses</CardTitle>
+        <Button variant="outline" asChild className="bg-transparent">
+          <Link href="/dashboard/expenses">View all</Link>
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="py-6 text-sm text-muted-foreground">Loading…</div>
+        ) : recent.length === 0 ? (
+          <div className="py-6 text-sm text-muted-foreground">No expenses yet.</div>
+        ) : (
+          <div className="space-y-3">
+            {recent.map((e) => (
+              <div key={e.id} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-foreground">{e.description}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">
+                      {e.category || "Others"}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{e.group_name || "No Group"}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(e.date).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="font-bold text-foreground">₹{Number(e.amount).toLocaleString("en-IN")}</div>
+                  <div className="text-xs text-muted-foreground">{e.paid_by_name || "Unknown"}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  ));
+
+  const CategoryBreakdown = React.memo(({ categoryRows, loading }: { categoryRows: any[]; loading: boolean }) => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">This Month Breakdown</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="py-6 text-sm text-muted-foreground">Loading…</div>
+        ) : categoryRows.length === 0 ? (
+          <div className="py-6 text-sm text-muted-foreground">No data for this month.</div>
+        ) : (
+          <div className="space-y-3">
+            {categoryRows.slice(0, 6).map((row) => (
+              <div key={row.category} className="flex items-center justify-between gap-3">
+                <div className="min-w-0 truncate text-sm text-foreground">{row.category}</div>
+                <div className="shrink-0 text-sm font-semibold text-foreground">
+                  {formatINR(row.total)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  ));
 
   const userName = user?.full_name || user?.email?.split("@")[0] || "User"
   const isBusinessUser = (user?.user_type || "personal") === "business"
@@ -246,72 +320,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Recent Expenses</CardTitle>
-            <Button variant="outline" asChild className="bg-transparent">
-              <Link href="/dashboard/expenses">View all</Link>
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="py-6 text-sm text-muted-foreground">Loading…</div>
-            ) : insights.recent.length === 0 ? (
-              <div className="py-6 text-sm text-muted-foreground">No expenses yet.</div>
-            ) : (
-              <div className="space-y-3">
-                {insights.recent.map((e) => (
-                  <div key={e.id} className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-foreground">{e.description}</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary" className="text-xs">
-                          {e.category || "Others"}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">{e.group_name || "No Group"}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(e.date).toLocaleDateString("en-IN", {
-                            day: "numeric",
-                            month: "short",
-                            year: "numeric",
-                          })}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="font-bold text-foreground">₹{Number(e.amount).toLocaleString("en-IN")}</div>
-                      <div className="text-xs text-muted-foreground">{e.paid_by_name || "Unknown"}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">This Month Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="py-6 text-sm text-muted-foreground">Loading…</div>
-            ) : insights.categoryRows.length === 0 ? (
-              <div className="py-6 text-sm text-muted-foreground">No data for this month.</div>
-            ) : (
-              <div className="space-y-3">
-                {insights.categoryRows.slice(0, 6).map((row) => (
-                  <div key={row.category} className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 truncate text-sm text-foreground">{row.category}</div>
-                    <div className="shrink-0 text-sm font-semibold text-foreground">
-                      {formatINR(row.total)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <RecentExpenses recent={insights.recent} loading={loading} />
+        <CategoryBreakdown categoryRows={insights.categoryRows} loading={loading} />
       </div>
     </div>
   )
