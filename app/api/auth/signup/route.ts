@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { signUp, setAuthCookie } from '@/lib/auth/auth';
+
+
+
+import { getFirestoreDB } from '@/lib/firebase/admin';
+import { getAuth } from 'firebase-admin/auth';
+
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,36 +32,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await signUp(
-      email.trim(),
-      password,
-      full_name?.trim(),
-      phone?.trim(),
-      user_type || 'personal',
-      business_name?.trim()
-    );
+    // Use shared Firebase Admin instance
+    const db = getFirestoreDB();
+    const adminAuth = getAuth();
 
-    if ('error' in result) {
-      return NextResponse.json(
-        { error: result.error },
-        { status: 400 }
-      );
+    // Validate and format phone number for Firebase (E.164 format required)
+    let formattedPhone: string | undefined = undefined;
+    if (phone && phone.trim()) {
+      const phoneStr = phone.trim();
+      // Check if phone starts with + and contains only digits after that
+      if (/^\+\d{10,15}$/.test(phoneStr)) {
+        formattedPhone = phoneStr;
+      } else {
+        // Try to format it if it doesn't have +
+        console.log('Phone number not in E.164 format, will be stored in Firestore only');
+      }
     }
 
-    await setAuthCookie(result.sessionToken);
-
-    const response = NextResponse.json({ user: result.user });
-    
-    // Also set cookie in response headers to ensure it's available immediately
-    response.cookies.set('session-token', result.sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: '/',
+    // Create user with Firebase Admin Auth
+    const userRecord = await adminAuth.createUser({
+      email,
+      password,
+      displayName: full_name || undefined,
+      phoneNumber: formattedPhone, // Only include if properly formatted
+      disabled: false,
     });
 
-    return response;
+    await db.collection('users').doc(userRecord.uid).set({
+      email: userRecord.email,
+      full_name: full_name || null,
+      phone: phone || null,
+      user_type: user_type || 'personal',
+      business_name: user_type === 'business' ? (business_name || null) : null,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    return NextResponse.json({ user: { uid: userRecord.uid, email: userRecord.email } });
   } catch (error: any) {
     console.error('Sign up error:', error);
     return NextResponse.json(

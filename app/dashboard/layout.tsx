@@ -1,8 +1,7 @@
 import React from "react"
 import { redirect } from "next/navigation"
-import { DashboardSidebar } from "@/components/dashboard/sidebar"
-import { DashboardHeader } from "@/components/dashboard/header"
-import { getCurrentUser } from "@/lib/mongodb/server"
+import { getCurrentUser } from "@/lib/auth/auth"
+import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 
 export default async function DashboardLayout({
   children,
@@ -20,19 +19,13 @@ export default async function DashboardLayout({
   const businessName = user.business_name || null
 
   return (
-    <div className="flex min-h-screen bg-muted/30">
-      <DashboardSidebar userType={userType} />
-      <div className="flex flex-1 flex-col lg:pl-64">
-        <DashboardHeader 
-          userName={userName} 
-          userType={userType}
-          businessName={businessName}
-          userEmail={user.email || ""}
-        />
-        <main className="flex-1 p-4 md:p-6">
-          {children}
-        </main>
-      </div>
-    </div>
+    <DashboardShell
+      userType={userType}
+      userName={userName}
+      businessName={businessName}
+      userEmail={user.email || ""}
+    >
+      {children}
+    </DashboardShell>
   )
 }

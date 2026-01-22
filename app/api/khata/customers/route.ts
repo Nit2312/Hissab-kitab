@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import Customer from '@/lib/mongodb/models/Customer';
-import KhataTransaction from '@/lib/mongodb/models/KhataTransaction';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,23 +10,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
-    const userId = new mongoose.Types.ObjectId(user.id);
+    const db = getFirestoreDB();
 
     // Fetch customers
-    const customers = await Customer.find({ owner_id: userId })
-      .sort({ name: 1 })
-      .lean();
+    const customersSnapshot = await db.collection(COLLECTIONS.CUSTOMERS)
+      .where('owner_id', '==', user.id)
+      .orderBy('name', 'asc')
+      .get();
+
+    const customers = customersSnapshot.docs.map(doc => docToObject(doc));
 
     // Fetch all transactions
-    const transactions = await KhataTransaction.find({ owner_id: userId })
-      .sort({ date: -1, created_at: -1 })
-      .lean();
+    const transactionsSnapshot = await db.collection(COLLECTIONS.KHATA_TRANSACTIONS)
+      .where('owner_id', '==', user.id)
+      .orderBy('date', 'desc')
+      .orderBy('created_at', 'desc')
+      .get();
+
+    const transactions = transactionsSnapshot.docs.map(doc => docToObject(doc));
 
     // Calculate balances for each customer
     const customersWithBalances = customers.map(customer => {
       const customerTransactions = transactions.filter(
-        t => t.customer_id.toString() === customer._id.toString()
+        t => t.customer_id === customer.id
       );
 
       let balance = 0;
@@ -45,12 +49,13 @@ export async function GET(request: NextRequest) {
           totalPaid += Number(trans.amount);
         }
         if (!lastTransaction) {
-          lastTransaction = trans.date.toISOString().split('T')[0];
+          const transDate = trans.date instanceof Date ? trans.date : new Date(trans.date);
+          lastTransaction = transDate.toISOString().split('T')[0];
         }
       });
 
       return {
-        id: customer._id.toString(),
+        id: customer.id,
         name: customer.name,
         phone: customer.phone || null,
         balance,

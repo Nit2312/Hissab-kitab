@@ -1,10 +1,9 @@
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { randomBytes } from 'crypto';
-import mongoose from 'mongoose';
-import User from '@/lib/mongodb/models/User';
-import Session from '@/lib/mongodb/models/Session';
-import connectDB from '@/lib/mongodb/connect';
+import { getFirestoreDB, prepareDataForFirestore, docToObject } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
+import { Timestamp } from 'firebase-admin/firestore';
 
 export interface AuthUser {
   id: string;
@@ -30,52 +29,92 @@ export function generateSessionToken(): string {
 }
 
 export async function createSession(userId: string): Promise<string> {
-  await connectDB();
-  
+  const db = getFirestoreDB();
+
   const sessionToken = generateSessionToken();
   const expiresAt = new Date(Date.now() + SESSION_DURATION);
-  
-  await Session.create({
-    user_id: new mongoose.Types.ObjectId(userId),
+
+  await db.collection(COLLECTIONS.SESSIONS).add({
+    user_id: userId,
     session_token: sessionToken,
-    expires_at: expiresAt,
+    expires_at: Timestamp.fromDate(expiresAt),
+    created_at: Timestamp.now(),
   });
-  
+
   return sessionToken;
 }
 
 export async function getSessionUser(sessionToken: string): Promise<AuthUser | null> {
   try {
-    await connectDB();
-    
-    const session = await Session.findOne({
-      session_token: sessionToken,
-      expires_at: { $gt: new Date() },
-    }).populate('user_id');
-    
-    if (!session || !session.user_id) {
+    const db = getFirestoreDB();
+
+    // Find session by token (search by token only to avoid index requirement)
+    const sessionsSnapshot = await db.collection(COLLECTIONS.SESSIONS)
+      .where('session_token', '==', sessionToken)
+      .limit(1)
+      .get();
+
+    if (sessionsSnapshot.empty) {
+      console.log('[Auth Debug] Session not found for token:', sessionToken.substring(0, 10));
       return null;
     }
-    
-    const user = session.user_id as any;
-    
+
+    const sessionDoc = sessionsSnapshot.docs[0];
+    const sessionData = sessionDoc.data();
+
+    // Check expiration in memory
+    const expiresAt = sessionData.expires_at instanceof Timestamp
+      ? sessionData.expires_at.toDate()
+      : new Date(sessionData.expires_at);
+
+    if (expiresAt < new Date()) {
+      console.log('[Auth Debug] Session expired');
+      // Optionally delete expired session here
+      return null;
+    }
+
+    const userId = sessionData.user_id;
+
+    if (!userId) {
+      console.log('[Auth Debug] Session found but no user_id');
+      return null;
+    }
+
+    // Get user document
+    const userDoc = await db.collection(COLLECTIONS.USERS).doc(userId).get();
+
+    if (!userDoc.exists) {
+      console.log('[Auth Debug] User document not found for ID:', userId);
+      return null;
+    }
+
+    const user = docToObject(userDoc);
+
     return {
-      id: user._id.toString(),
+      id: user.id,
       email: user.email,
       full_name: user.full_name,
       phone: user.phone,
       user_type: user.user_type,
       business_name: user.business_name,
     };
-  } catch {
+  } catch (error) {
+    console.error('[Auth Debug] getSessionUser error:', error);
     return null;
   }
 }
 
 export async function deleteSession(sessionToken: string): Promise<void> {
   try {
-    await connectDB();
-    await Session.deleteOne({ session_token: sessionToken });
+    const db = getFirestoreDB();
+    const sessionsSnapshot = await db.collection(COLLECTIONS.SESSIONS)
+      .where('session_token', '==', sessionToken)
+      .limit(1)
+      .get();
+
+    if (!sessionsSnapshot.empty) {
+      await sessionsSnapshot.docs[0].ref.delete();
+    }
   } catch {
     // Ignore errors
   }
@@ -86,12 +125,18 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     const cookieStore = await cookies();
     const sessionToken = cookieStore.get('session-token')?.value;
 
+    console.log('[Auth Debug] getCurrentUser called. Token present:', !!sessionToken);
+
     if (!sessionToken) {
+      console.log('[Auth Debug] No session token found in cookies');
       return null;
     }
 
-    return await getSessionUser(sessionToken);
-  } catch {
+    const user = await getSessionUser(sessionToken);
+    console.log('[Auth Debug] getSessionUser result:', user ? `Found user ${user.email}` : 'User not found');
+    return user;
+  } catch (error) {
+    console.error('[Auth Debug] getCurrentUser error:', error);
     return null;
   }
 }
@@ -105,22 +150,27 @@ export async function signUp(
   business_name?: string
 ): Promise<{ user: AuthUser; sessionToken: string } | { error: string }> {
   try {
-    await connectDB();
+    const db = getFirestoreDB();
 
     // Check if email already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
+    const emailSnapshot = await db.collection(COLLECTIONS.USERS)
+      .where('email', '==', email.toLowerCase())
+      .limit(1)
+      .get();
+
+    if (!emailSnapshot.empty) {
       return { error: 'User with this email already exists' };
     }
 
     // Check if phone number already exists for this user type
     if (phone?.trim()) {
-      const existingProfile = await User.findOne({
-        phone: phone.trim(),
-        user_type,
-      });
+      const phoneSnapshot = await db.collection(COLLECTIONS.USERS)
+        .where('phone', '==', phone.trim())
+        .where('user_type', '==', user_type)
+        .limit(1)
+        .get();
 
-      if (existingProfile) {
+      if (!phoneSnapshot.empty) {
         return {
           error: `This phone number is already registered with a ${user_type} account. You can use the same phone number for both personal and business accounts, but not for two accounts of the same type.`,
         };
@@ -131,21 +181,28 @@ export async function signUp(
     const hashedPassword = await hashPassword(password);
 
     // Create user
-    const user = await User.create({
+    const now = Timestamp.now();
+    const userData = {
       email: email.toLowerCase(),
       password: hashedPassword,
-      full_name,
-      phone: phone?.trim() || undefined,
+      full_name: full_name || null,
+      phone: phone?.trim() || null,
       user_type,
-      business_name: user_type === 'business' ? business_name : undefined,
-    });
+      business_name: user_type === 'business' ? (business_name || null) : null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    const userRef = await db.collection(COLLECTIONS.USERS).add(userData);
+    const userDoc = await userRef.get();
+    const user = docToObject(userDoc);
 
     // Create session
-    const sessionToken = await createSession(user._id.toString());
+    const sessionToken = await createSession(user.id);
 
     return {
       user: {
-        id: user._id.toString(),
+        id: user.id,
         email: user.email,
         full_name: user.full_name,
         phone: user.phone,
@@ -155,15 +212,30 @@ export async function signUp(
       sessionToken,
     };
   } catch (error: any) {
-    if (error.code === 11000) {
-      // Duplicate key error
-      if (error.keyPattern?.phone) {
-        return {
-          error: `This phone number is already registered with a ${user_type} account.`,
-        };
-      }
-      return { error: 'User with this email already exists' };
+    console.error('Sign up error:', error);
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+    console.error('Error details:', error.details);
+
+    // Provide more helpful error messages
+    if (error.code === 5 || error.message?.includes('NOT_FOUND')) {
+      return {
+        error: 'Firestore database connection failed. Please verify: 1) Database exists in Firebase Console, 2) Service account has proper permissions, 3) Project ID matches (hissab-kitab-69a41)'
+      };
     }
+
+    if (error.code === 7 || error.message?.includes('PERMISSION_DENIED')) {
+      return {
+        error: 'Permission denied. Please check your Firebase service account has "Cloud Datastore User" or "Firebase Admin" role.'
+      };
+    }
+
+    if (error.code === 16 || error.message?.includes('UNAUTHENTICATED')) {
+      return {
+        error: 'Authentication failed. Please check your FIREBASE_SERVICE_ACCOUNT_KEY in .env.local.local is correct.'
+      };
+    }
+
     return { error: error.message || 'Failed to create account' };
   }
 }
@@ -173,12 +245,19 @@ export async function signIn(
   password: string
 ): Promise<{ user: AuthUser; sessionToken: string } | { error: string }> {
   try {
-    await connectDB();
+    const db = getFirestoreDB();
 
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
+    const usersSnapshot = await db.collection(COLLECTIONS.USERS)
+      .where('email', '==', email.toLowerCase())
+      .limit(1)
+      .get();
+
+    if (usersSnapshot.empty) {
       return { error: 'Invalid email or password' };
     }
+
+    const userDoc = usersSnapshot.docs[0];
+    const user = docToObject(userDoc);
 
     const isPasswordValid = await comparePassword(password, user.password);
     if (!isPasswordValid) {
@@ -186,11 +265,11 @@ export async function signIn(
     }
 
     // Create session
-    const sessionToken = await createSession(user._id.toString());
+    const sessionToken = await createSession(user.id);
 
     return {
       user: {
-        id: user._id.toString(),
+        id: user.id,
         email: user.email,
         full_name: user.full_name,
         phone: user.phone,
@@ -218,10 +297,10 @@ export async function setAuthCookie(sessionToken: string) {
 export async function removeAuthCookie() {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get('session-token')?.value;
-  
+
   if (sessionToken) {
     await deleteSession(sessionToken);
   }
-  
+
   cookieStore.delete('session-token');
 }

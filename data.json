@@ -1,0 +1,285 @@
+{
+    "_id": "697082c63c90eb5a447c50f8",
+    "shop": "paymore-springfield",
+    "shopify_order_id": "7182965539098",
+    "name": "#VA02-10581",
+    "source_name": "web",
+    "discount_codes": "",
+    "current_total_price": 1299.99,
+    "customer_email": "sashalop12w@gmail.com",
+    "customer_name": "Marouane Hichane",
+    "customer_phone": null,
+    "fulfillment_status": null,
+    "shipping_address1": "6120 20TH AVE",
+    "shipping_address2": "",
+    "shipping_city": "BROOKLYN",
+    "shipping_zip": "11204-3068",
+    "shipping_province": "New York",
+    "shipping_country": "United States",
+    "shipping_customer_name": "Marouane Hichane",
+    "order_shipping_phone": "3474431420",
+    "biling_address1": "6120 20TH AVE",
+    "biling_address2": "",
+    "biling_city": "BROOKLYN",
+    "biling_zip": "11204-3068",
+    "biling_province": "New York",
+    "biling_country": "United States",
+    "biling_customer_name": "Marouane Hichane",
+    "order_biling_phone": "3474431420",
+    "cancelled_at": "2026-01-21T17:29:14.000Z",
+    "shopify_created_at": "2026-01-21T07:39:36.000Z",
+    "shopify_order_note": "PAYMORE-COM-49ab56fa-2636-4d06-9317-c71057200a20",
+    "createdAt": "2026-01-21T07:39:36.000Z",
+    "order_delivery_method": "",
+    "payment_methods": [
+      {
+        "id": "gid://shopify/OrderTransaction/8600374182170",
+        "gateway": "shopify_payments",
+        "amount": "1299.99",
+        "currency": "USD",
+        "createdAt": "2026-01-21T07:39:32Z",
+        "kind": "AUTHORIZATION",
+        "receiptJson": {
+          "id": "pi_3Srw0nQwk5YYk6551eOjhADi",
+          "object": "payment_intent",
+          "amount": 129999,
+          "amount_capturable": 129999,
+          "amount_received": 0,
+          "canceled_at": null,
+          "cancellation_reason": null,
+          "capture_method": "manual",
+          "latest_charge": {
+            "id": "ch_3Srw0nQwk5YYk6551YdOsGMI",
+            "object": "charge",
+            "amount": 129999,
+            "application_fee": null,
+            "balance_transaction": null,
+            "captured": false,
+            "created": 1768981173,
+            "currency": "usd",
+            "failure_code": null,
+            "failure_message": null,
+            "fraud_details": {},
+            "livemode": true,
+            "metadata": {
+              "payment_id": "r36rYMEmJkhIuu9QCvWyxxJYA",
+              "payments_extension": "true",
+              "payments_extension_type": "card",
+              "reconciliation_flow": "payments_api",
+              "shop_id": "79220146458"
+            },
+            "outcome": {
+              "advice_code": null,
+              "network_advice_code": null,
+              "network_decline_code": null,
+              "network_status": "approved_by_network",
+              "reason": null,
+              "risk_level": "elevated",
+              "seller_message": "Payment complete.",
+              "type": "authorized"
+            },
+            "paid": true,
+            "payment_intent": "pi_3Srw0nQwk5YYk6551eOjhADi",
+            "payment_method": "pm_1Srw0nQwk5YYk655n7AGhNyA",
+            "payment_method_details": {
+              "card": {
+                "amount_authorized": 129999,
+                "authorization_code": "134773",
+                "brand": "mastercard",
+                "capture_before": 1771573173,
+                "checks": {
+                  "address_line1_check": "unavailable",
+                  "address_postal_code_check": "unavailable",
+                  "cvc_check": "pass"
+                },
+                "country": "ZA",
+                "description": "Platinum MasterCard Card",
+                "ds_transaction_id": null,
+                "exp_month": 7,
+                "exp_year": 2028,
+                "extended_authorization": {
+                  "status": "enabled"
+                },
+                "fingerprint": "cg3hnWJYEJO2oXPX",
+                "funding": "credit",
+                "iin": "517989",
+                "incremental_authorization": {
+                  "status": "unavailable"
+                },
+                "installments": null,
+                "issuer": "NEDBANK LIMITED",
+                "last4": "8941",
+                "mandate": null,
+                "moto": false,
+                "multicapture": {
+                  "status": "unavailable"
+                },
+                "network": "mastercard",
+                "network_token": {
+                  "used": false
+                },
+                "network_transaction_id": "MPLDESKPE0121",
+                "overcapture": {
+                  "maximum_amount_capturable": 129999,
+                  "status": "unavailable"
+                },
+                "overcapture_supported": false,
+                "payment_account_reference": "50013BW2D9E1HB6J4R6MZFONIL06O",
+                "regulated_status": "unregulated",
+                "three_d_secure": null,
+                "wallet": null
+              },
+              "type": "card"
+            },
+            "refunded": false,
+            "source": null,
+            "status": "succeeded",
+            "mit_params": {
+              "network_transaction_id": "MPLDESKPE0121"
+            }
+          },
+          "confirmation_method": "manual",
+          "created": 1768981173,
+          "currency": "usd",
+          "customer": null,
+          "last_payment_error": null,
+          "livemode": true,
+          "metadata": {
+            "payment_id": "r36rYMEmJkhIuu9QCvWyxxJYA",
+            "payments_extension": "true",
+            "payments_extension_type": "card",
+            "reconciliation_flow": "payments_api",
+            "shop_id": "79220146458"
+          },
+          "next_action": null,
+          "payment_method": "pm_1Srw0nQwk5YYk655n7AGhNyA",
+          "payment_method_types": [
+            "card"
+          ],
+          "source": null,
+          "status": "requires_capture"
+        }
+      },
+      {
+        "id": "gid://shopify/OrderTransaction/8601391268122",
+        "gateway": "shopify_payments",
+        "amount": "1299.99",
+        "currency": "USD",
+        "createdAt": "2026-01-21T17:29:12Z",
+        "kind": "VOID",
+        "receiptJson": {
+          "id": "pi_3Srw0nQwk5YYk6551eOjhADi",
+          "object": "payment_intent",
+          "amount": 129999,
+          "amount_capturable": 0,
+          "amount_received": 0,
+          "canceled_at": 1769016553,
+          "cancellation_reason": null,
+          "capture_method": "manual",
+          "latest_charge": "ch_3Srw0nQwk5YYk6551YdOsGMI",
+          "confirmation_method": "manual",
+          "created": 1768981173,
+          "currency": "usd",
+          "customer": null,
+          "last_payment_error": null,
+          "livemode": true,
+          "metadata": {
+            "payment_id": "r36rYMEmJkhIuu9QCvWyxxJYA",
+            "payments_extension": "true",
+            "payments_extension_type": "card",
+            "reconciliation_flow": "payments_api",
+            "shop_id": "79220146458"
+          },
+          "next_action": null,
+          "payment_method": "pm_1Srw0nQwk5YYk655n7AGhNyA",
+          "payment_method_types": [
+            "card"
+          ],
+          "source": null,
+          "status": "canceled"
+        }
+      }
+    ],
+    "ebayDetails": null,
+    "delivery_method_name": "Standard",
+    "delivery_method_type": "SHIPPING",
+    "orderEvents": [
+      {
+        "action": "placed",
+        "message": "Marouane Hichane placed this order on Online Store (checkout #40492082397466).",
+        "appTitle": null
+      },
+      {
+        "action": "confirmation_number_generated",
+        "message": "Confirmation #YNDLT0P70 was generated for this order.",
+        "appTitle": null
+      },
+      {
+        "action": "note_created",
+        "message": "Note added to this order.",
+        "appTitle": null
+      },
+      {
+        "action": "authorization_success",
+        "message": "$1,299.99 USD was authorized using a Mastercard ending in 8941.",
+        "appTitle": null
+      },
+      {
+        "action": "mail_sent",
+        "message": "Order confirmation email was sent to Marouane Hichane (sashalop12w@gmail.com).",
+        "appTitle": null
+      },
+      {
+        "action": "confirmed",
+        "message": "Received new order <a href=\"https://paymore-springfield.myshopify.com/admin/orders/7182965539098\">#VA02-10581</a> by Marouane Hichane.",
+        "appTitle": null
+      },
+      {
+        "action": "void_success",
+        "message": "Lindsay Lowe voided the authorization on a Mastercard ending in 8941.",
+        "appTitle": "Shopify Web"
+      },
+      {
+        "action": "refund_restock",
+        "message": "Lindsay Lowe restocked 1 item at 1 location.",
+        "appTitle": "Shopify Web"
+      },
+      {
+        "action": "refund_created",
+        "message": "Lindsay Lowe refunded 1 item.",
+        "appTitle": "Shopify Web"
+      },
+      {
+        "action": "closed",
+        "message": "This order was archived.",
+        "appTitle": "Shopify Web"
+      },
+      {
+        "action": "cancelled",
+        "message": "Lindsay Lowe canceled this order.",
+        "appTitle": "Shopify Web"
+      },
+      {
+        "action": "mail_sent",
+        "message": "Lindsay Lowe sent an order canceled email to Marouane Hichane (sashalop12w@gmail.com).",
+        "appTitle": "Shopify Web"
+      }
+    ],
+    "is_sent_to_discord": true,
+    "tracking_info": [],
+    "lineItems": [
+      {
+        "_id": "697082c73c90eb5a447c510c",
+        "orderId": "697082c63c90eb5a447c50f8",
+        "name": "2023 Apple MacBook Pro 16\" M3 Pro 18 Core 4.0GHz 18GB RAM 512GB SSD MRW13LL/A",
+        "price": 1299.99,
+        "qty": 1,
+        "p_img": "https://cdn.shopify.com/s/files/1/0792/2014/6458/files/20260119_172300.jpg?v=1768907053",
+        "v_sku": "VA02-5583A-B2",
+        "v_barcode": "53811156"
+      }
+    ],
+    "verification_status": "progress",
+    "verification_url": "https://verify.stripe.com/start/live_YWNjdF8xRXh3QVFHUFFtMkl5emFYLF9UcGllUm0zY3BTVUx2ZVdHanpmN2twcjBlMW1pZ2hp0100EnoYTYwk",
+    "verification_order_number": "#VA02-10581"
+  }

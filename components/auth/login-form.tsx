@@ -18,6 +18,7 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(initialError || null)
+  const [success, setSuccess] = useState(false)
   const [userType, setUserType] = useState<"personal" | "business">("personal")
   const [formData, setFormData] = useState({
     email: "",
@@ -30,13 +31,36 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
     setError(null)
 
     try {
+      // Use Firebase Client SDK to authenticate
+      const { signInWithEmailAndPassword } = await import('firebase/auth')
+      const { getAuth } = await import('firebase/auth')
+      const { initializeApp, getApps } = await import('firebase/app')
+
+      // Initialize Firebase if not already initialized
+      const firebaseConfig = {
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      }
+
+      const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
+      const auth = getAuth(app)
+
+      // Sign in with Firebase
+      const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password)
+      const user = userCredential.user
+
+      // Get ID token to send to backend
+      const idToken = await user.getIdToken()
+
+      // Send token to backend to create session
       const response = await fetch("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
+          idToken,
+          userType,
         }),
       })
 
@@ -50,39 +74,42 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
       }
 
       if (data.user) {
-        // Update user type in profile based on selection
-        if (data.user.user_type !== userType) {
-          try {
-            await fetch("/api/auth/update-user-type", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ user_type: userType }),
-            })
-          } catch (updateError) {
-            console.error("Failed to update user type:", updateError)
-            // Don't block redirect if update fails
-          }
-        }
+        setSuccess(true)
 
         // Small delay to ensure cookie is set, then redirect with full page reload
         setTimeout(() => {
           const redirectPath = userType === "business" ? "/dashboard/khata" : "/dashboard"
           window.location.href = redirectPath
-        }, 100)
+        }, 1000)
       } else {
         setError("Sign in successful but user data not returned. Please try again.")
         setIsLoading(false)
       }
     } catch (err: any) {
       console.error("Login error:", err)
-      setError(err?.message || "An unexpected error occurred. Please try again.")
+      // Handle Firebase auth errors
+      let errorMessage = "An unexpected error occurred. Please try again."
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        errorMessage = "Invalid email or password"
+      } else if (err.code === 'auth/too-many-requests') {
+        errorMessage = "Too many failed login attempts. Please try again later."
+      } else if (err.code === 'auth/network-request-failed') {
+        errorMessage = "Network error. Please check your connection."
+      }
+      setError(errorMessage)
       setIsLoading(false)
     }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {success && (
+        <div className="p-3 text-sm text-primary bg-primary/10 rounded-md flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Login successful! Redirecting to dashboard...</span>
+        </div>
+      )}
+
       {error && (
         <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
           {error}
@@ -98,11 +125,10 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
         >
           <Label
             htmlFor="login-personal"
-            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
-              userType === "personal"
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-primary/50"
-            }`}
+            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${userType === "personal"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/50"
+              }`}
           >
             <RadioGroupItem value="personal" id="login-personal" className="sr-only" />
             <Users className={`h-6 w-6 ${userType === "personal" ? "text-primary" : "text-muted-foreground"}`} />
@@ -115,11 +141,10 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
           </Label>
           <Label
             htmlFor="login-business"
-            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
-              userType === "business"
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-primary/50"
-            }`}
+            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${userType === "business"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/50"
+              }`}
           >
             <RadioGroupItem value="business" id="login-business" className="sr-only" />
             <Store className={`h-6 w-6 ${userType === "business" ? "text-primary" : "text-muted-foreground"}`} />

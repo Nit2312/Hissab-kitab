@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import Expense from '@/lib/mongodb/models/Expense';
-import ExpenseSplit from '@/lib/mongodb/models/ExpenseSplit';
-import GroupMember from '@/lib/mongodb/models/GroupMember';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject } from '@/lib/firebase/admin';
+import { updateDocument, deleteDocument, isValidFirestoreId } from '@/lib/firebase/helpers';
+import { COLLECTIONS } from '@/lib/firebase/collections';
+import { Timestamp } from 'firebase-admin/firestore';
+
+function normalizeCategory(category: unknown) {
+  if (typeof category !== 'string') return 'Others';
+  if (category.toLowerCase() === 'other') return 'Others';
+  return category;
+}
 
 export async function PUT(
   request: NextRequest,
@@ -19,64 +24,68 @@ export async function PUT(
     const body = await request.json();
     const { description, amount, category, date } = body;
 
-    await connectDB();
     const params = context.params;
     const resolvedParams = params instanceof Promise ? await params : params;
     
-    // Validate ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(resolvedParams.id)) {
+    if (!isValidFirestoreId(resolvedParams.id)) {
       return NextResponse.json({ error: 'Invalid expense ID format' }, { status: 400 });
     }
 
-    const expense = await Expense.findById(resolvedParams.id);
+    const db = getFirestoreDB();
+    const expenseDoc = await db.collection(COLLECTIONS.EXPENSES).doc(resolvedParams.id).get();
 
-    if (!expense) {
+    if (!expenseDoc.exists) {
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
     }
 
+    const expense = docToObject(expenseDoc);
+
     // Check if user owns this expense
-    const expensePaidBy = expense.paid_by.toString();
-    const userId = user.id.toString();
-    
-    if (expensePaidBy !== userId) {
-      console.error('Authorization failed:', { expensePaidBy, userId, expenseId: resolvedParams.id });
+    if (expense.paid_by !== user.id) {
       return NextResponse.json({ error: 'Not authorized to edit this expense' }, { status: 403 });
     }
 
-    // Update expense
-    const oldAmount = expense.amount;
-    if (description !== undefined) expense.description = description;
-    if (amount !== undefined) expense.amount = Number(amount);
-    if (category !== undefined) expense.category = category;
-    if (date !== undefined) expense.date = new Date(date);
+    // Prepare update data
+    const updateData: any = {};
+    if (description !== undefined) updateData.description = description;
+    if (amount !== undefined) updateData.amount = Number(amount);
+    if (category !== undefined) updateData.category = normalizeCategory(category);
+    if (date !== undefined) updateData.date = Timestamp.fromDate(new Date(date));
 
-    await expense.save();
+    const oldAmount = expense.amount;
+    const updatedExpense = await updateDocument(COLLECTIONS.EXPENSES, resolvedParams.id, updateData);
 
     // If amount changed and expense has a group, update expense splits
     if (amount !== undefined && expense.group_id && Number(amount) !== oldAmount) {
-      const groupMembers = await GroupMember.find({
-        group_id: expense.group_id,
-      });
+      const groupMembersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+        .where('group_id', '==', expense.group_id)
+        .get();
       
-      if (groupMembers.length > 0) {
-        const newSplitAmount = Number(amount) / groupMembers.length;
-        // Update all splits for this expense
-        await ExpenseSplit.updateMany(
-          { expense_id: expense._id },
-          { amount: newSplitAmount }
-        );
+      if (!groupMembersSnapshot.empty) {
+        const newSplitAmount = Number(amount) / groupMembersSnapshot.size;
+        const batch = db.batch();
+        
+        const splitsSnapshot = await db.collection(COLLECTIONS.EXPENSE_SPLITS)
+          .where('expense_id', '==', resolvedParams.id)
+          .get();
+        
+        splitsSnapshot.docs.forEach((splitDoc: FirebaseFirestore.QueryDocumentSnapshot) => {
+          batch.update(splitDoc.ref, { amount: newSplitAmount });
+        });
+        
+        await batch.commit();
       }
     }
 
     return NextResponse.json({
-      id: expense._id.toString(),
-      description: expense.description,
-      amount: expense.amount,
-      paid_by: expense.paid_by.toString(),
-      date: expense.date.toISOString().split('T')[0],
-      category: expense.category,
-      group_id: expense.group_id?.toString() || null,
-      split_type: expense.split_type,
+      id: updatedExpense.id,
+      description: updatedExpense.description,
+      amount: updatedExpense.amount,
+      paid_by: updatedExpense.paid_by,
+      date: updatedExpense.date instanceof Date ? updatedExpense.date.toISOString().split('T')[0] : updatedExpense.date.split('T')[0],
+      category: normalizeCategory(updatedExpense.category),
+      group_id: updatedExpense.group_id || null,
+      split_type: updatedExpense.split_type,
     });
   } catch (error: any) {
     console.error('Error updating expense:', error);
@@ -94,34 +103,36 @@ export async function DELETE(
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
     const params = context.params;
     const resolvedParams = params instanceof Promise ? await params : params;
     
-    // Validate ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(resolvedParams.id)) {
+    if (!isValidFirestoreId(resolvedParams.id)) {
       return NextResponse.json({ error: 'Invalid expense ID format' }, { status: 400 });
     }
 
-    const expense = await Expense.findById(resolvedParams.id);
+    const db = getFirestoreDB();
+    const expenseDoc = await db.collection(COLLECTIONS.EXPENSES).doc(resolvedParams.id).get();
 
-    if (!expense) {
+    if (!expenseDoc.exists) {
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
     }
 
+    const expense = docToObject(expenseDoc);
+
     // Check if user owns this expense
-    const expensePaidBy = expense.paid_by.toString();
-    const userId = user.id.toString();
-    
-    if (expensePaidBy !== userId) {
+    if (expense.paid_by !== user.id) {
       return NextResponse.json({ error: 'Not authorized to delete this expense' }, { status: 403 });
     }
 
     // Delete expense splits first
-    await ExpenseSplit.deleteMany({ expense_id: expense._id });
-
-    // Delete expense
-    await Expense.findByIdAndDelete(resolvedParams.id);
+    const splitsSnapshot = await db.collection(COLLECTIONS.EXPENSE_SPLITS)
+      .where('expense_id', '==', resolvedParams.id)
+      .get();
+    
+    const batch = db.batch();
+    splitsSnapshot.docs.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => batch.delete(doc.ref));
+    batch.delete(db.collection(COLLECTIONS.EXPENSES).doc(resolvedParams.id));
+    await batch.commit();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -23,17 +23,6 @@ import {
 import { Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
-const categories = [
-  "Food",
-  "Travel",
-  "Bills",
-  "Groceries",
-  "Shopping",
-  "Entertainment",
-  "Rent",
-  "Others"
-]
-
 interface AddExpenseDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -51,17 +40,34 @@ interface AddExpenseDialogProps {
 export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, onExpenseUpdated }: AddExpenseDialogProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
-  const [groups, setGroups] = useState<Array<{ id: string; name: string }>>([])
+  const [categories, setCategories] = useState<string[]>([])
   const isEditMode = !!expense
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
     category: "",
-    group: defaultGroupId || "",
     date: new Date().toISOString().split("T")[0]
   })
 
-  // Update form data when defaultGroupId changes or dialog opens
+  // Fetch categories when dialog opens
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await fetch("/api/categories")
+        if (response.ok) {
+          const data = await response.json()
+          setCategories(data)
+        }
+      } catch (err) {
+        console.error("Error fetching categories:", err)
+      }
+    }
+    if (open) {
+      fetchCategories()
+    }
+  }, [open])
+
+  // Update form data when dialog opens
   React.useEffect(() => {
     if (open) {
       if (expense) {
@@ -70,51 +76,20 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
           description: expense.description,
           amount: expense.amount.toString(),
           category: expense.category,
-          group: defaultGroupId || "",
           date: expense.date
         })
-      } else if (defaultGroupId) {
-        // Add mode with default group
-        setFormData(prev => ({
-          ...prev,
-          group: defaultGroupId
-        }))
       } else {
-        // Add mode without default group
-        setFormData(prev => ({
-          ...prev,
-          group: ""
-        }))
+        // Add mode - reset form
+        setFormData({
+          description: "",
+          amount: "",
+          category: "",
+          date: new Date().toISOString().split("T")[0]
+        })
       }
     }
-    // Reset form when dialog closes
-    if (!open) {
-      setFormData({
-        description: "",
-        amount: "",
-        category: "",
-        group: defaultGroupId || "",
-        date: new Date().toISOString().split("T")[0]
-      })
-    }
-  }, [open, defaultGroupId, expense])
+  }, [open, expense])
 
-  // Fetch groups when dialog opens
-  React.useEffect(() => {
-    if (open) {
-      const fetchGroups = async () => {
-        try {
-          const response = await fetch("/api/groups");
-          if (!response.ok) return;
-          const groupsData = await response.json();
-          setGroups(groupsData.map((g: any) => ({ id: g.id, name: g.name })));
-        } catch (err) {
-          console.error("Error fetching groups:", err)
-        }
-      }
-      fetchGroups()
-    }
-  }, [open])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -128,7 +103,7 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
           body: JSON.stringify({
             description: formData.description,
             amount: parseFloat(formData.amount),
-            category: formData.category || "other",
+            category: formData.category || "Others",
             date: formData.date,
           }),
         })
@@ -154,8 +129,8 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
           body: JSON.stringify({
             description: formData.description,
             amount: parseFloat(formData.amount),
-            category: formData.category || "other",
-            group_id: formData.group || null,
+            category: formData.category || "Others",
+            group_id: null,
             split_type: "equal",
             date: formData.date,
           }),
@@ -171,7 +146,6 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
           description: "",
           amount: "",
           category: "",
-          group: defaultGroupId || "",
           date: new Date().toISOString().split("T")[0]
         })
         toast({
@@ -240,46 +214,23 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
               />
             </div>
 
-            <div className={`grid gap-4 ${defaultGroupId ? 'grid-cols-1' : 'grid-cols-2'}`}>
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <Select
-                  value={formData.category}
-                  onValueChange={(value) => setFormData({ ...formData, category: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {!defaultGroupId && (
-                <div className="space-y-2">
-                  <Label>Group (Optional)</Label>
-                  <Select
-                    value={formData.group || "none"}
-                    onValueChange={(value) => setFormData({ ...formData, group: value === "none" ? "" : value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select group (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No Group</SelectItem>
-                      {groups.map((group) => (
-                        <SelectItem key={group.id} value={group.id}>
-                          {group.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Select
+                value={formData.category}
+                onValueChange={(value) => setFormData({ ...formData, category: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
           </div>

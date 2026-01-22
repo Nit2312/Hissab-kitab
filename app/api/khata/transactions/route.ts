@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import KhataTransaction from '@/lib/mongodb/models/KhataTransaction';
-import Customer from '@/lib/mongodb/models/Customer';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
+import { Timestamp } from 'firebase-admin/firestore';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,25 +11,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
-    const transactions = await KhataTransaction.find({
-      owner_id: new mongoose.Types.ObjectId(user.id)
-    })
-      .populate('customer_id', 'name phone')
-      .sort({ date: -1, created_at: -1 })
+    const db = getFirestoreDB();
+    const transactionsSnapshot = await db.collection(COLLECTIONS.KHATA_TRANSACTIONS)
+      .where('owner_id', '==', user.id)
+      .orderBy('date', 'desc')
+      .orderBy('created_at', 'desc')
       .limit(50)
-      .lean();
+      .get();
 
-    const transactionsData = transactions.map(t => ({
-      id: t._id.toString(),
-      customer_id: (t.customer_id as any)._id.toString(),
-      customer: (t.customer_id as any).name,
-      type: t.type,
-      amount: t.amount,
-      date: t.date.toISOString().split('T')[0],
-      description: t.description || null,
-      created_at: t.created_at.toISOString(),
-    }));
+    const transactions = transactionsSnapshot.docs.map(doc => docToObject(doc));
+
+    // Fetch customer details for each transaction
+    const transactionsData = await Promise.all(
+      transactions.map(async (t) => {
+        const customerDoc = await db.collection(COLLECTIONS.CUSTOMERS).doc(t.customer_id).get();
+        const customer = customerDoc.exists ? customerDoc.data() : null;
+
+        return {
+          id: t.id,
+          customer_id: t.customer_id,
+          customer: customer?.name || 'Unknown',
+          type: t.type,
+          amount: t.amount,
+          date: t.date instanceof Date ? t.date.toISOString().split('T')[0] : t.date.split('T')[0],
+          description: t.description || null,
+          created_at: t.created_at instanceof Date ? t.created_at.toISOString() : t.created_at,
+        };
+      })
+    );
 
     return NextResponse.json(transactionsData);
   } catch (error: any) {
@@ -51,27 +59,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    await connectDB();
-    const transaction = await KhataTransaction.create({
-      owner_id: new mongoose.Types.ObjectId(user.id),
-      customer_id: new mongoose.Types.ObjectId(customer_id),
+    const db = getFirestoreDB();
+    const transactionDate = date ? new Date(date) : new Date();
+    
+    const transaction = await createDocument(COLLECTIONS.KHATA_TRANSACTIONS, {
+      owner_id: user.id,
+      customer_id: customer_id,
       type,
       amount: Number(amount),
-      description: description || undefined,
-      date: date ? new Date(date) : new Date(),
+      description: description || null,
+      date: transactionDate,
     });
 
-    await transaction.populate('customer_id', 'name phone');
+    // Get customer details
+    const customerDoc = await db.collection(COLLECTIONS.CUSTOMERS).doc(customer_id).get();
+    const customer = customerDoc.exists ? customerDoc.data() : null;
 
     return NextResponse.json({
-      id: transaction._id.toString(),
-      customer_id: transaction.customer_id._id.toString(),
-      customer: (transaction.customer_id as any).name,
+      id: transaction.id,
+      customer_id: transaction.customer_id,
+      customer: customer?.name || 'Unknown',
       type: transaction.type,
       amount: transaction.amount,
-      date: transaction.date.toISOString().split('T')[0],
+      date: transaction.date instanceof Date ? transaction.date.toISOString().split('T')[0] : transaction.date.split('T')[0],
       description: transaction.description || null,
-      created_at: transaction.created_at.toISOString(),
+      created_at: transaction.created_at instanceof Date ? transaction.created_at.toISOString() : transaction.created_at,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

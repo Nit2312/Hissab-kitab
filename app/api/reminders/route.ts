@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import Reminder from '@/lib/mongodb/models/Reminder';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,31 +10,43 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
-    const userId = new mongoose.Types.ObjectId(user.id);
+    const db = getFirestoreDB();
 
-    const reminders = await Reminder.find({
-      $or: [
-        { from_user_id: userId },
-        { to_user_id: userId }
-      ]
-    })
-      .sort({ created_at: -1 })
-      .lean();
+    // Get reminders where user is either from_user or to_user
+    const fromRemindersSnapshot = await db.collection(COLLECTIONS.REMINDERS)
+      .where('from_user_id', '==', user.id)
+      .get();
 
-    const remindersData = reminders.map(r => ({
-      id: r._id.toString(),
-      from_user_id: r.from_user_id.toString(),
-      to_user_id: r.to_user_id?.toString() || null,
+    const toRemindersSnapshot = await db.collection(COLLECTIONS.REMINDERS)
+      .where('to_user_id', '==', user.id)
+      .get();
+
+    // Combine and deduplicate
+    const allReminders = new Map();
+    [...fromRemindersSnapshot.docs, ...toRemindersSnapshot.docs].forEach(doc => {
+      allReminders.set(doc.id, docToObject(doc));
+    });
+
+    const remindersData = Array.from(allReminders.values()).map(r => ({
+      id: r.id,
+      from_user_id: r.from_user_id,
+      to_user_id: r.to_user_id || null,
       to_name: r.to_name || null,
       to_phone: r.to_phone || null,
       amount: r.amount,
       message: r.message || null,
       status: r.status,
       reminder_type: r.reminder_type,
-      sent_at: r.sent_at?.toISOString() || null,
-      created_at: r.created_at.toISOString(),
+      sent_at: r.sent_at instanceof Date ? r.sent_at.toISOString() : (r.sent_at || null),
+      created_at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
     }));
+
+    // Sort by created_at descending (in-memory to avoid composite index requirements)
+    remindersData.sort((a, b) => {
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bTime - aTime;
+    });
 
     return NextResponse.json(remindersData);
   } catch (error: any) {
@@ -56,29 +67,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'amount is required' }, { status: 400 });
     }
 
-    await connectDB();
-    const reminder = await Reminder.create({
-      from_user_id: new mongoose.Types.ObjectId(user.id),
-      to_user_id: to_user_id ? new mongoose.Types.ObjectId(to_user_id) : undefined,
-      to_name: to_name || undefined,
-      to_phone: to_phone || undefined,
+    const reminder = await createDocument(COLLECTIONS.REMINDERS, {
+      from_user_id: user.id,
+      to_user_id: to_user_id || null,
+      to_name: to_name || null,
+      to_phone: to_phone || null,
       amount: Number(amount),
-      message: message || undefined,
+      message: message || null,
       reminder_type: reminder_type || 'manual',
       status: 'pending',
     });
 
     return NextResponse.json({
-      id: reminder._id.toString(),
-      from_user_id: reminder.from_user_id.toString(),
-      to_user_id: reminder.to_user_id?.toString() || null,
+      id: reminder.id,
+      from_user_id: reminder.from_user_id,
+      to_user_id: reminder.to_user_id || null,
       to_name: reminder.to_name || null,
       to_phone: reminder.to_phone || null,
       amount: reminder.amount,
       message: reminder.message || null,
       status: reminder.status,
       reminder_type: reminder.reminder_type,
-      created_at: reminder.created_at.toISOString(),
+      created_at: reminder.created_at instanceof Date ? reminder.created_at.toISOString() : reminder.created_at,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

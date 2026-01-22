@@ -15,11 +15,11 @@ type Group = {
   name: string
   type: string
   created_at: string
-  members?: Array<{ name: string; user_id?: string }>
-  totalExpenses?: number
-  yourBalance?: number
-  balanceType?: "owed" | "owe" | "settled"
-  lastActivity?: string
+  members: Array<{ name: string; user_id?: string }>
+  totalExpenses: number
+  yourBalance: number
+  balanceType: "owed" | "owe" | "settled"
+  lastActivity: string
 }
 
 export default function GroupsPage() {
@@ -30,56 +30,56 @@ export default function GroupsPage() {
   const [mounted, setMounted] = useState(false)
   const searchParams = useSearchParams()
 
+  const fetchGroups = async () => {
+    setLoading(true)
+    try {
+      // Fetch groups
+      const groupsResponse = await fetch("/api/groups")
+      if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
+      const groupsData = await groupsResponse.json()
+
+      // Fetch members and expenses for each group
+      const groupsWithDetails = await Promise.all(
+        groupsData.map(async (group: any) => {
+          // Fetch members
+          const membersResponse = await fetch(`/api/groups/members?group_id=${group.id}`)
+          const members = membersResponse.ok ? await membersResponse.json() : []
+
+          // Fetch recent expenses for this group
+          const expensesResponse = await fetch("/api/expenses")
+          const allExpenses = expensesResponse.ok ? await expensesResponse.json() : []
+          const groupExpenses = allExpenses.filter((e: any) => e.group_id === group.id)
+
+          const totalExpenses = groupExpenses.reduce((sum: number, e: any) => sum + Number(e.amount), 0)
+          const lastActivityDate = groupExpenses.length > 0
+            ? groupExpenses.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date
+            : null
+
+          return {
+            ...group,
+            members: members.map((m: any) => ({ name: m.name, user_id: m.user_id })),
+            totalExpenses,
+            yourBalance: 0, // TODO: Calculate actual balance
+            balanceType: "settled" as const,
+            lastActivity: lastActivityDate,
+          }
+        })
+      )
+
+      setGroups(groupsWithDetails)
+    } catch (err) {
+      console.error("Error fetching groups:", err)
+      setGroups([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     setMounted(true)
   }, [])
 
   useEffect(() => {
-    const fetchGroups = async () => {
-      setLoading(true)
-      try {
-        // Fetch groups
-        const groupsResponse = await fetch("/api/groups")
-        if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
-        const groupsData = await groupsResponse.json()
-
-        // Fetch members and expenses for each group
-        const groupsWithDetails = await Promise.all(
-          groupsData.map(async (group: any) => {
-            // Fetch members
-            const membersResponse = await fetch(`/api/groups/members?group_id=${group.id}`)
-            const members = membersResponse.ok ? await membersResponse.json() : []
-
-            // Fetch recent expenses for this group
-            const expensesResponse = await fetch("/api/expenses")
-            const allExpenses = expensesResponse.ok ? await expensesResponse.json() : []
-            const groupExpenses = allExpenses.filter((e: any) => e.group_id === group.id)
-
-            const totalExpenses = groupExpenses.reduce((sum: number, e: any) => sum + Number(e.amount), 0)
-            const lastActivityDate = groupExpenses.length > 0 
-              ? groupExpenses.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date
-              : null
-
-            return {
-              ...group,
-              members: members.map((m: any) => ({ name: m.name, user_id: m.user_id })),
-              totalExpenses,
-              yourBalance: 0, // TODO: Calculate actual balance
-              balanceType: "settled" as const,
-              lastActivity: lastActivityDate,
-            }
-          })
-        )
-
-        setGroups(groupsWithDetails)
-      } catch (err) {
-        console.error("Error fetching groups:", err)
-        setGroups([])
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchGroups()
   }, [isCreateOpen])
 
@@ -131,7 +131,13 @@ export default function GroupsPage() {
           </div>
         )}
 
-        <CreateGroupDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+        <CreateGroupDialog
+          open={isCreateOpen}
+          onOpenChange={setIsCreateOpen}
+          onCreated={() => {
+            fetchGroups()
+          }}
+        />
       </div>
     </Suspense>
   )

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import Group from '@/lib/mongodb/models/Group';
-import GroupMember from '@/lib/mongodb/models/GroupMember';
-import mongoose from 'mongoose';
+import { getDocumentById, isValidFirestoreId, deleteDocument } from '@/lib/firebase/helpers';
+import { getFirestoreDB } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
 
 export async function GET(
   request: NextRequest,
@@ -15,28 +14,27 @@ export async function GET(
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
     const params = context.params;
     const resolvedParams = params instanceof Promise ? await params : params;
     
-    if (!mongoose.Types.ObjectId.isValid(resolvedParams.id)) {
+    if (!isValidFirestoreId(resolvedParams.id)) {
       return NextResponse.json({ error: 'Invalid group ID format' }, { status: 400 });
     }
 
-    const group = await Group.findById(resolvedParams.id).lean();
+    const group = await getDocumentById(COLLECTIONS.GROUPS, resolvedParams.id);
 
     if (!group) {
       return NextResponse.json({ error: 'Group not found' }, { status: 404 });
     }
 
     return NextResponse.json({
-      id: (group as any)._id.toString(),
-      name: (group as any).name,
-      description: (group as any).description || null,
-      type: (group as any).type,
-      created_by: (group as any).created_by.toString(),
-      created_at: (group as any).created_at.toISOString(),
-      updated_at: (group as any).updated_at.toISOString(),
+      id: group.id,
+      name: group.name,
+      description: group.description || null,
+      type: group.type,
+      created_by: group.created_by,
+      created_at: group.created_at instanceof Date ? group.created_at.toISOString() : group.created_at,
+      updated_at: group.updated_at instanceof Date ? group.updated_at.toISOString() : group.updated_at,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
@@ -53,27 +51,38 @@ export async function DELETE(
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
     const params = context.params;
     const resolvedParams = params instanceof Promise ? await params : params;
     
-    if (!mongoose.Types.ObjectId.isValid(resolvedParams.id)) {
+    if (!isValidFirestoreId(resolvedParams.id)) {
       return NextResponse.json({ error: 'Invalid group ID format' }, { status: 400 });
     }
 
-    const group = await Group.findById(resolvedParams.id);
+    const group = await getDocumentById(COLLECTIONS.GROUPS, resolvedParams.id);
 
     if (!group) {
       return NextResponse.json({ error: 'Group not found' }, { status: 404 });
     }
 
     // Check if user is the creator
-    if (group.created_by.toString() !== user.id) {
+    if (group.created_by !== user.id) {
       return NextResponse.json({ error: 'Only the group creator can delete the group' }, { status: 403 });
     }
 
-    // Delete group (members and expenses will be deleted via cascade)
-    await Group.findByIdAndDelete(resolvedParams.id);
+    const db = getFirestoreDB();
+
+    // Delete group members
+    const membersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+      .where('group_id', '==', resolvedParams.id)
+      .get();
+    
+    const batch = db.batch();
+    membersSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+    
+    // Delete group
+    batch.delete(db.collection(COLLECTIONS.GROUPS).doc(resolvedParams.id));
+    
+    await batch.commit();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

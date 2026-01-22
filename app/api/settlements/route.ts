@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import Settlement from '@/lib/mongodb/models/Settlement';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
+import { Timestamp } from 'firebase-admin/firestore';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,30 +11,42 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
-    const userId = new mongoose.Types.ObjectId(user.id);
+    const db = getFirestoreDB();
 
-    const settlements = await Settlement.find({
-      $or: [
-        { from_user_id: userId },
-        { to_user_id: userId }
-      ]
-    })
-      .sort({ created_at: -1 })
-      .lean();
+    // Get settlements where user is either from_user or to_user
+    const fromSettlementsSnapshot = await db.collection(COLLECTIONS.SETTLEMENTS)
+      .where('from_user_id', '==', user.id)
+      .get();
 
-    const settlementsData = settlements.map(s => ({
-      id: s._id.toString(),
-      from_user_id: s.from_user_id.toString(),
-      to_user_id: s.to_user_id.toString(),
-      group_id: s.group_id?.toString() || null,
+    const toSettlementsSnapshot = await db.collection(COLLECTIONS.SETTLEMENTS)
+      .where('to_user_id', '==', user.id)
+      .get();
+
+    // Combine and deduplicate
+    const allSettlements = new Map();
+    [...fromSettlementsSnapshot.docs, ...toSettlementsSnapshot.docs].forEach(doc => {
+      allSettlements.set(doc.id, docToObject(doc));
+    });
+
+    const settlementsData = Array.from(allSettlements.values()).map(s => ({
+      id: s.id,
+      from_user_id: s.from_user_id,
+      to_user_id: s.to_user_id,
+      group_id: s.group_id || null,
       amount: s.amount,
       payment_method: s.payment_method || null,
       status: s.status,
       notes: s.notes || null,
-      settled_at: s.settled_at.toISOString(),
-      created_at: s.created_at.toISOString(),
+      settled_at: s.settled_at instanceof Date ? s.settled_at.toISOString() : s.settled_at,
+      created_at: s.created_at instanceof Date ? s.created_at.toISOString() : s.created_at,
     }));
+
+    // Sort by created_at descending (in-memory to avoid composite index requirements)
+    settlementsData.sort((a, b) => {
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bTime - aTime;
+    });
 
     return NextResponse.json(settlementsData);
   } catch (error: any) {
@@ -55,28 +67,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'to_user_id and amount are required' }, { status: 400 });
     }
 
-    await connectDB();
-    const settlement = await Settlement.create({
-      from_user_id: new mongoose.Types.ObjectId(user.id),
-      to_user_id: new mongoose.Types.ObjectId(to_user_id),
+    const now = Timestamp.now();
+    const settlement = await createDocument(COLLECTIONS.SETTLEMENTS, {
+      from_user_id: user.id,
+      to_user_id: to_user_id,
       amount: Number(amount),
-      group_id: group_id ? new mongoose.Types.ObjectId(group_id) : undefined,
-      payment_method: payment_method || undefined,
-      notes: notes || undefined,
+      group_id: group_id || null,
+      payment_method: payment_method || null,
+      notes: notes || null,
       status: 'completed',
+      settled_at: now,
     });
 
     return NextResponse.json({
-      id: settlement._id.toString(),
-      from_user_id: settlement.from_user_id.toString(),
-      to_user_id: settlement.to_user_id.toString(),
-      group_id: settlement.group_id?.toString() || null,
+      id: settlement.id,
+      from_user_id: settlement.from_user_id,
+      to_user_id: settlement.to_user_id,
+      group_id: settlement.group_id || null,
       amount: settlement.amount,
       payment_method: settlement.payment_method || null,
       status: settlement.status,
       notes: settlement.notes || null,
-      settled_at: settlement.settled_at.toISOString(),
-      created_at: settlement.created_at.toISOString(),
+      settled_at: settlement.settled_at instanceof Date ? settlement.settled_at.toISOString() : settlement.settled_at,
+      created_at: settlement.created_at instanceof Date ? settlement.created_at.toISOString() : settlement.created_at,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

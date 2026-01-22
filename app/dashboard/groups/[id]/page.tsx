@@ -71,6 +71,26 @@ type Expense = {
   paid_by_name?: string
 }
 
+type GroupBalancesResponse = {
+  group_id: string
+  total_expenses: number
+  members: Array<{
+    member: Member
+    paid: number
+    share: number
+    owed: number
+    credit: number
+    net: number
+  }>
+  transfers: Array<{
+    from_member_id: string
+    to_member_id: string
+    amount: number
+    from_name: string
+    to_name: string
+  }>
+}
+
 export default function GroupDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -94,6 +114,7 @@ export default function GroupDetailPage() {
   const [totalExpenses, setTotalExpenses] = useState(0)
   const [yourShare, setYourShare] = useState(0)
   const [youPaid, setYouPaid] = useState(0)
+  const [balancesData, setBalancesData] = useState<GroupBalancesResponse | null>(null)
 
   useEffect(() => {
     fetchGroupDetails()
@@ -166,17 +187,23 @@ export default function GroupDetailPage() {
 
       setExpenses(expensesWithNames)
 
-      // Calculate totals
-      const total = expensesData.reduce((sum: number, e: any) => sum + Number(e.amount), 0)
-      setTotalExpenses(total)
+      // Fetch accurate balances (who owes whom) for this group
+      const balancesResponse = await fetch(`/api/groups/balances?group_id=${groupId}`, {
+        cache: 'no-store',
+        credentials: "include",
+      })
+      if (!balancesResponse.ok) throw new Error("Failed to fetch balances")
+      const balancesJson = (await balancesResponse.json()) as GroupBalancesResponse
+      setBalancesData(balancesJson)
 
-      const paid = expensesData.filter((e: any) => e.paid_by === userData.id)
-        .reduce((sum: number, e: any) => sum + Number(e.amount), 0)
-      setYouPaid(paid)
+      // Summary numbers from balances
+      setTotalExpenses(Number(balancesJson.total_expenses || 0))
 
-      // Calculate your share (equal split for now)
-      const memberCount = membersData.length || 1
-      setYourShare(total / memberCount)
+      const currentMemberBalance = balancesJson.members.find(
+        (m) => m.member.user_id === userData.id
+      )
+      setYouPaid(Number(currentMemberBalance?.paid || 0))
+      setYourShare(Number(currentMemberBalance?.share || 0))
 
     } catch (err: any) {
       console.error("Error fetching group details:", err)
@@ -566,8 +593,16 @@ export default function GroupDetailPage() {
         <TabsContent value="members" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Group Members</CardTitle>
-              <CardDescription>{members.length} members in this group</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Group Members</CardTitle>
+                  <CardDescription>{members.length} members in this group</CardDescription>
+                </div>
+                <Button size="sm" onClick={() => setIsAddMembersOpen(true)} className="gap-2">
+                  <UserPlus className="h-4 w-4" />
+                  Add members
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {members.map((member) => {
@@ -655,169 +690,112 @@ export default function GroupDetailPage() {
               <CardDescription>Who you owe and who owes you</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {(() => {
-                // Splitwise-style calculation: equal split across all members
-                const memberCount = members.length || 1
-                const sharePerPerson = totalExpenses / memberCount
+              {!balancesData ? (
+                <div className="rounded-lg border border-border bg-muted/50 p-6 text-center">
+                  <p className="text-sm text-muted-foreground">Unable to calculate balances</p>
+                </div>
+              ) : (() => {
+                const transfers = balancesData.transfers || []
 
-                // Calculate each member's balance (paid - share)
-                const memberBalances = members.map((member) => {
-                  const memberPaid = expenses
-                    .filter(e => e.paid_by === member.user_id)
-                    .reduce((sum, e) => sum + Number(e.amount), 0)
-                  const balance = memberPaid - sharePerPerson
-                  return { member, paid: memberPaid, share: sharePerPerson, balance }
+                // Compute net per person for current user
+                const netPerPerson = new Map<string, number>()
+                transfers.forEach((t) => {
+                  const fromMember = balancesData.members.find((m) => m.member.id === t.from_member_id)
+                  const toMember = balancesData.members.find((m) => m.member.id === t.to_member_id)
+                  if (!fromMember || !toMember) return
+
+                  if (fromMember.member.user_id === currentUserId) {
+                    netPerPerson.set(t.to_member_id, (netPerPerson.get(t.to_member_id) || 0) + Number(t.amount))
+                  }
+                  if (toMember.member.user_id === currentUserId) {
+                    netPerPerson.set(t.from_member_id, (netPerPerson.get(t.from_member_id) || 0) - Number(t.amount))
+                  }
                 })
 
-                // Find current user's balance
-                const currentUserBalanceData = memberBalances.find(
-                  mb => mb.member.user_id === currentUserId
+                const netEntries = Array.from(netPerPerson.entries())
+                  .map(([memberId, net]) => {
+                    const member = balancesData.members.find((m) => m.member.id === memberId)
+                    return {
+                      member: member?.member,
+                      net,
+                    }
+                  })
+                  .filter((e) => e.member && Math.abs(e.net) > 0.01)
+                  .sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
+
+                const totalYouPay = netEntries
+                  .filter((e) => e.net > 0)
+                  .reduce((sum, e) => sum + e.net, 0)
+                const totalYouReceive = Math.abs(
+                  netEntries
+                    .filter((e) => e.net < 0)
+                    .reduce((sum, e) => sum + e.net, 0)
                 )
-                if (!currentUserBalanceData) {
-                  return (
-                    <div className="rounded-lg border border-border bg-muted/50 p-6 text-center">
-                      <p className="text-sm text-muted-foreground">Unable to calculate balances</p>
-                    </div>
-                  )
-                }
-
-                const currentUserBalance = currentUserBalanceData.balance
-
-                // Calculate who you owe and who owes you (Splitwise style)
-                const whoYouOwe: Array<{ member: Member; amount: number }> = []
-                const whoOwesYou: Array<{ member: Member; amount: number }> = []
-
-                if (currentUserBalance < 0) {
-                  // Current user owes money - they owe to members with positive balance
-                  const totalOwed = Math.abs(currentUserBalance)
-                  const membersOwed = memberBalances.filter(
-                    mb => mb.member.user_id !== currentUserId && mb.balance > 0.01
-                  )
-                  const totalPositiveBalance = membersOwed.reduce((sum, mb) => sum + mb.balance, 0)
-
-                  if (totalPositiveBalance > 0.01) {
-                    membersOwed.forEach(({ member, balance }) => {
-                      // Distribute proportionally based on how much each member is owed
-                      const amount = (totalOwed * balance) / totalPositiveBalance
-                      if (amount > 0.01) {
-                        whoYouOwe.push({ member, amount })
-                      }
-                    })
-                  }
-                } else if (currentUserBalance > 0) {
-                  // Current user is owed money - members with negative balance owe them
-                  const totalOwedToUser = currentUserBalance
-                  const membersWhoOwe = memberBalances.filter(
-                    mb => mb.member.user_id !== currentUserId && mb.balance < -0.01
-                  )
-                  const totalNegativeBalance = membersWhoOwe.reduce(
-                    (sum, mb) => sum + Math.abs(mb.balance), 0
-                  )
-
-                  if (totalNegativeBalance > 0.01) {
-                    membersWhoOwe.forEach(({ member, balance }) => {
-                      // Distribute proportionally based on how much each member owes
-                      const amount = (totalOwedToUser * Math.abs(balance)) / totalNegativeBalance
-                      if (amount > 0.01) {
-                        whoOwesYou.push({ member, amount })
-                      }
-                    })
-                  }
-                }
-
-                // Calculate totals
-                const totalYouOwe = whoYouOwe.reduce((sum, item) => sum + item.amount, 0)
-                const totalOwedToYou = whoOwesYou.reduce((sum, item) => sum + item.amount, 0)
 
                 return (
                   <>
-                    {whoYouOwe.length > 0 && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-foreground">Total to give</p>
+                          <p className="text-lg font-bold text-destructive">
+                            ₹{totalYouPay.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-primary/30 bg-primary/10 p-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-foreground">Total to get</p>
+                          <p className="text-lg font-bold text-primary">
+                            ₹{totalYouReceive.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {netEntries.length > 0 ? (
                       <div className="space-y-3">
-                        <p className="text-sm font-medium text-muted-foreground">You need to pay to</p>
+                        <p className="text-sm font-medium text-muted-foreground">Your balances</p>
                         <div className="space-y-2">
-                          {whoYouOwe.map(({ member, amount }) => (
-                            <div key={member.id} className="flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 p-3">
-                              <div className="flex items-center gap-3">
-                                <Avatar>
-                                  <AvatarFallback className="bg-destructive/10 text-destructive">
-                                    {member.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div>
-                                  <p className="font-medium text-foreground">{member.name}</p>
-                                  {member.email && member.is_registered && (
-                                    <p className="text-xs text-muted-foreground">{member.email}</p>
-                                  )}
-                                  {!member.is_registered && member.phone && (
-                                    <p className="text-xs text-muted-foreground">{member.phone}</p>
-                                  )}
+                          {netEntries.map(({ member, net }) => {
+                            const isPay = net > 0
+                            const amount = Math.abs(net)
+                            const label = isPay ? `You pay ${member?.name}` : `${member?.name} pays you`
+                            return (
+                              <div
+                                key={member?.id}
+                                className={`flex items-center justify-between rounded-lg border p-3 ${
+                                  isPay
+                                    ? 'border-destructive/20 bg-destructive/5'
+                                    : 'border-primary/20 bg-primary/5'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <Avatar>
+                                    <AvatarFallback
+                                      className={
+                                        isPay ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'
+                                      }
+                                    >
+                                      {member?.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div>
+                                    <p className="font-medium text-foreground">{member?.name}</p>
+                                    <p className="text-xs text-muted-foreground">{label}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`text-lg font-bold ${isPay ? 'text-destructive' : 'text-primary'}`}>
+                                    ₹{amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                                  </p>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="text-lg font-bold text-destructive">
-                                  ₹{amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
-                        {totalYouOwe > 0.01 && (
-                          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
-                            <div className="flex items-center justify-between">
-                              <p className="font-medium text-foreground">Total to pay</p>
-                              <p className="text-xl font-bold text-destructive">
-                                ₹{totalYouOwe.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                              </p>
-                            </div>
-                          </div>
-                        )}
                       </div>
-                    )}
-
-                    {whoOwesYou.length > 0 && (
-                      <div className="space-y-3">
-                        <p className="text-sm font-medium text-muted-foreground">You need to take from</p>
-                        <div className="space-y-2">
-                          {whoOwesYou.map(({ member, amount }) => (
-                            <div key={member.id} className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 p-3">
-                              <div className="flex items-center gap-3">
-                                <Avatar>
-                                  <AvatarFallback className="bg-primary/10 text-primary">
-                                    {member.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div>
-                                  <p className="font-medium text-foreground">{member.name}</p>
-                                  {member.email && member.is_registered && (
-                                    <p className="text-xs text-muted-foreground">{member.email}</p>
-                                  )}
-                                  {!member.is_registered && member.phone && (
-                                    <p className="text-xs text-muted-foreground">{member.phone}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-lg font-bold text-primary">
-                                  ₹{amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        {totalOwedToYou > 0.01 && (
-                          <div className="rounded-lg border border-primary/30 bg-primary/10 p-3">
-                            <div className="flex items-center justify-between">
-                              <p className="font-medium text-foreground">Total to receive</p>
-                              <p className="text-xl font-bold text-primary">
-                                ₹{totalOwedToYou.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {whoYouOwe.length === 0 && whoOwesYou.length === 0 && (
+                    ) : (
                       <div className="rounded-lg border border-border bg-muted/50 p-6 text-center">
                         <p className="text-lg font-medium text-foreground">All settled up!</p>
                         <p className="text-sm text-muted-foreground mt-1">

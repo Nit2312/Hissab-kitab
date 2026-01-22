@@ -1,150 +1,318 @@
-import { redirect } from "next/navigation"
-import { getCurrentUser } from "@/lib/mongodb/server"
-import { PersonalDashboard } from "@/components/dashboard/personal-dashboard"
-import connectDB from "@/lib/mongodb/connect"
-import Group from "@/lib/mongodb/models/Group"
-import GroupMember from "@/lib/mongodb/models/GroupMember"
-import Expense from "@/lib/mongodb/models/Expense"
-import ExpenseSplit from "@/lib/mongodb/models/ExpenseSplit"
-import Settlement from "@/lib/mongodb/models/Settlement"
-import mongoose from "mongoose"
+"use client"
 
-export default async function DashboardPage() {
-  const user = await getCurrentUser()
-  
-  if (!user) {
-    redirect("/login?error=unauthorized")
-  }
+import Link from "next/link"
+import { useEffect, useMemo, useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { useRequireAuth } from "@/hooks/use-require-auth"
+import { Plus, Receipt, Users, CreditCard, TrendingUp, Clock } from "lucide-react"
 
-  const userType = user.user_type || "personal"
-  const userName = user.full_name || user.email?.split("@")[0] || "User"
+type User = {
+  id: string
+  email?: string
+  full_name?: string
+  user_type?: "personal" | "business"
+  business_name?: string | null
+}
 
-  // If business user, redirect to khata
-  if (userType === "business") {
-    redirect("/dashboard/khata")
-  }
+type Group = {
+  id: string
+  name: string
+  type: string
+  created_at: string
+}
 
-  await connectDB()
-  const userId = new mongoose.Types.ObjectId(user.id)
+type Expense = {
+  id: string
+  description: string
+  amount: number
+  paid_by: string
+  date: string
+  category: string
+  group_id?: string | null
+  group_name?: string | null
+  paid_by_name?: string
+  participant_count?: number
+}
 
-  // Fetch user's groups
-  const groupMembers = await GroupMember.find({ user_id: userId })
-  const groupIds = groupMembers.map(gm => gm.group_id)
+type Settlement = {
+  id: string
+  from_user_id: string
+  to_user_id: string
+  amount: number
+  status: string
+  created_at: string
+  settled_at?: string
+}
 
-  // Fetch groups data
-  const groups = groupIds.length > 0 
-    ? await Group.find({ _id: { $in: groupIds } })
-    : []
+function startOfMonthISO(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1)
+}
 
-  // Fetch recent expenses
-  const expenses = await Expense.find({
-    $or: [
-      { paid_by: userId },
-      { group_id: { $in: groupIds } }
-    ]
-  })
-    .sort({ created_at: -1 })
-    .limit(10)
-    .lean()
+function isSameOrAfter(a: Date, b: Date) {
+  return a.getTime() >= b.getTime()
+}
 
-  // Calculate balances from expense splits
-  let youOwe = 0
-  let youAreOwed = 0
+export default function DashboardPage() {
+  useRequireAuth()
 
-  // Get user's group member IDs
-  const userGroupMembers = await GroupMember.find({ user_id: userId })
-  const memberIds = userGroupMembers.map(gm => gm._id)
+  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null)
+  const [groups, setGroups] = useState<Group[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [settlements, setSettlements] = useState<Settlement[]>([])
 
-  if (memberIds.length > 0) {
-    // Fetch expense splits where user is a member
-    const expenseSplits = await ExpenseSplit.find({
-      member_id: { $in: memberIds }
-    }).populate('expense_id').lean()
+  useEffect(() => {
+    const fetchAll = async () => {
+      setLoading(true)
+      try {
+        const userRes = await fetch("/api/auth/user", { credentials: "include" })
+        if (!userRes.ok) throw new Error("Not authenticated")
+        const userData = (await userRes.json()) as User
+        setUser(userData)
 
-    // Calculate what user owes (splits where user hasn't paid and expense wasn't paid by them)
-    for (const split of expenseSplits) {
-      const expense = split.expense_id as any
-      if (expense && expense.paid_by.toString() !== user.id && !split.is_paid) {
-        youOwe += Number(split.amount)
+        const [groupsRes, expensesRes, settlementsRes] = await Promise.all([
+          fetch("/api/groups", { credentials: "include" }),
+          fetch("/api/expenses", { credentials: "include" }),
+          fetch("/api/settlements", { credentials: "include" }),
+        ])
+
+        setGroups(groupsRes.ok ? await groupsRes.json() : [])
+        setExpenses(expensesRes.ok ? await expensesRes.json() : [])
+        setSettlements(settlementsRes.ok ? await settlementsRes.json() : [])
+      } catch (e) {
+        setUser(null)
+        setGroups([])
+        setExpenses([])
+        setSettlements([])
+      } finally {
+        setLoading(false)
       }
     }
 
-    // Calculate what user is owed (expenses user paid, splits by others)
-    const paidExpenseIds = expenses.filter(e => e.paid_by.toString() === user.id).map(e => e._id)
-    if (paidExpenseIds.length > 0) {
-      const otherSplits = await ExpenseSplit.find({
-        expense_id: { $in: paidExpenseIds },
-        member_id: { $nin: memberIds },
-        is_paid: false
-      }).populate({
-        path: 'member_id',
-        populate: { path: 'user_id' }
-      }).lean()
+    fetchAll()
+  }, [])
 
-      for (const split of otherSplits) {
-        youAreOwed += Number(split.amount)
-      }
+  const insights = useMemo(() => {
+    const now = new Date()
+    const monthStart = startOfMonthISO(now)
+    const last7Start = new Date(now)
+    last7Start.setDate(last7Start.getDate() - 6)
+    last7Start.setHours(0, 0, 0, 0)
+
+    const parsedExpenses = expenses
+      .map((e) => ({
+        ...e,
+        amount: Number(e.amount),
+        _date: new Date(e.date),
+      }))
+      .filter((e) => !Number.isNaN(e._date.getTime()))
+
+    const thisMonthExpenses = parsedExpenses.filter((e) => isSameOrAfter(e._date, monthStart))
+    const last7Expenses = parsedExpenses.filter((e) => isSameOrAfter(e._date, last7Start))
+
+    const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + e.amount, 0)
+    const last7Total = last7Expenses.reduce((sum, e) => sum + e.amount, 0)
+    const totalAllTime = parsedExpenses.reduce((sum, e) => sum + e.amount, 0)
+
+    const byCategory = new Map<string, number>()
+    for (const e of thisMonthExpenses) {
+      const key = e.category || "Others"
+      byCategory.set(key, (byCategory.get(key) || 0) + e.amount)
     }
+
+    const categoryRows = Array.from(byCategory.entries())
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total)
+
+    const topCategory = categoryRows[0]?.category || "—"
+
+    const recent = parsedExpenses
+      .slice()
+      .sort((a, b) => b._date.getTime() - a._date.getTime())
+      .slice(0, 6)
+
+    const settlementsTotal = settlements.reduce((sum, s) => sum + Number(s.amount || 0), 0)
+
+    return {
+      thisMonthTotal,
+      last7Total,
+      totalAllTime,
+      topCategory,
+      categoryRows,
+      recent,
+      settlementsTotal,
+    }
+  }, [expenses, settlements])
+
+  const formatINR = (amount: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(amount)
   }
 
-  // Fetch settlements
-  const settlements = await Settlement.find({
-    $or: [
-      { from_user_id: userId },
-      { to_user_id: userId }
-    ]
-  })
-    .sort({ created_at: -1 })
-    .limit(5)
-    .lean()
-
-  // Convert MongoDB documents to plain objects with id field
-  const groupsData = groups.map(g => ({
-    id: g._id.toString(),
-    name: g.name,
-    description: g.description,
-    type: g.type,
-    created_by: g.created_by.toString(),
-    created_at: g.created_at.toISOString(),
-    updated_at: g.updated_at.toISOString(),
-  }))
-
-  const expensesData = expenses.map(e => ({
-    id: e._id.toString(),
-    group_id: e.group_id?.toString() || null,
-    description: e.description,
-    amount: e.amount,
-    category: e.category,
-    paid_by: e.paid_by.toString(),
-    split_type: e.split_type,
-    date: e.date.toISOString().split('T')[0],
-    notes: e.notes,
-    created_at: e.created_at.toISOString(),
-    updated_at: e.updated_at.toISOString(),
-  }))
-
-  const settlementsData = settlements.map(s => ({
-    id: s._id.toString(),
-    from_user_id: s.from_user_id.toString(),
-    to_user_id: s.to_user_id.toString(),
-    group_id: s.group_id?.toString() || null,
-    amount: s.amount,
-    payment_method: s.payment_method,
-    status: s.status,
-    notes: s.notes,
-    settled_at: s.settled_at.toISOString(),
-    created_at: s.created_at.toISOString(),
-  }))
+  const userName = user?.full_name || user?.email?.split("@")[0] || "User"
+  const isBusinessUser = (user?.user_type || "personal") === "business"
 
   return (
-    <PersonalDashboard
-      userName={userName}
-      groups={groupsData}
-      expenses={expensesData}
-      settlements={settlementsData}
-      youOwe={youOwe}
-      youAreOwed={youAreOwed}
-      userId={user.id}
-    />
+    <div className="space-y-6 pb-20 lg:pb-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-foreground">Namaste, {userName}!</h2>
+          <p className="text-muted-foreground">
+            {isBusinessUser
+              ? "A quick snapshot of your activity"
+              : "Here’s what’s happening across your expenses and groups"}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!isBusinessUser && (
+            <Button asChild className="gap-2">
+              <Link href="/dashboard/expenses?action=add">
+                <Plus className="h-4 w-4" />
+                Add Expense
+              </Link>
+            </Button>
+          )}
+          <Button variant="outline" asChild className="gap-2 bg-transparent">
+            <Link href="/dashboard/groups?action=create">
+              <Users className="h-4 w-4" />
+              Create Group
+            </Link>
+          </Button>
+          <Button variant="outline" asChild className="gap-2 bg-transparent">
+            <Link href="/dashboard/settlements">
+              <CreditCard className="h-4 w-4" />
+              Settle Up
+            </Link>
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">This Month</CardTitle>
+            <TrendingUp className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">
+              {loading ? "—" : formatINR(insights.thisMonthTotal)}
+            </div>
+            <p className="text-xs text-muted-foreground">Spending since month start</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Last 7 Days</CardTitle>
+            <Clock className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">
+              {loading ? "—" : formatINR(insights.last7Total)}
+            </div>
+            <p className="text-xs text-muted-foreground">Short-term trend</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Top Category</CardTitle>
+            <Receipt className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">
+              {loading ? "—" : insights.topCategory}
+            </div>
+            <p className="text-xs text-muted-foreground">Based on this month</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Groups</CardTitle>
+            <Users className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">{loading ? "—" : groups.length}</div>
+            <p className="text-xs text-muted-foreground">Where you share expenses</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Recent Expenses</CardTitle>
+            <Button variant="outline" asChild className="bg-transparent">
+              <Link href="/dashboard/expenses">View all</Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="py-6 text-sm text-muted-foreground">Loading…</div>
+            ) : insights.recent.length === 0 ? (
+              <div className="py-6 text-sm text-muted-foreground">No expenses yet.</div>
+            ) : (
+              <div className="space-y-3">
+                {insights.recent.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-foreground">{e.description}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary" className="text-xs">
+                          {e.category || "Others"}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">{e.group_name || "No Group"}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(e.date).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="font-bold text-foreground">₹{Number(e.amount).toLocaleString("en-IN")}</div>
+                      <div className="text-xs text-muted-foreground">{e.paid_by_name || "Unknown"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">This Month Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="py-6 text-sm text-muted-foreground">Loading…</div>
+            ) : insights.categoryRows.length === 0 ? (
+              <div className="py-6 text-sm text-muted-foreground">No data for this month.</div>
+            ) : (
+              <div className="space-y-3">
+                {insights.categoryRows.slice(0, 6).map((row) => (
+                  <div key={row.category} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 truncate text-sm text-foreground">{row.category}</div>
+                    <div className="shrink-0 text-sm font-semibold text-foreground">
+                      {formatINR(row.total)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   )
 }

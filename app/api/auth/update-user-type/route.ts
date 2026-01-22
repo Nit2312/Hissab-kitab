@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import User from '@/lib/mongodb/models/User';
-import connectDB from '@/lib/mongodb/connect';
+import { updateDocument } from '@/lib/firebase/helpers';
+import { COLLECTIONS } from '@/lib/firebase/collections';
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,8 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid user type' }, { status: 400 });
     }
 
-    await connectDB();
-    await User.findByIdAndUpdate(user.id, { user_type });
+    await updateDocument(COLLECTIONS.USERS, user.id, { user_type });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

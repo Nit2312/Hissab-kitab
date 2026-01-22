@@ -1,40 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { signIn, setAuthCookie } from '@/lib/auth/auth';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestoreDB } from '@/lib/firebase/admin';
+import { createSession } from '@/lib/auth/auth';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password } = body;
+    const { idToken, userType } = body;
 
-    if (!email || !password) {
+    if (!idToken) {
       return NextResponse.json(
-        { error: 'Email and password are required' },
+        { error: 'ID token is required' },
         { status: 400 }
       );
     }
 
-    if (typeof email !== 'string' || typeof password !== 'string') {
-      return NextResponse.json(
-        { error: 'Invalid email or password format' },
-        { status: 400 }
-      );
+    // Use shared Firebase Admin instance
+    const db = getFirestoreDB();
+    const adminAuth = getAuth();
+
+    // Verify the ID token
+    let decodedToken;
+    try {
+      decodedToken = await adminAuth.verifyIdToken(idToken);
+    } catch (err) {
+      console.error('Token verification error:', err);
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
     }
 
-    const result = await signIn(email.trim(), password);
+    const uid = decodedToken.uid;
 
-    if ('error' in result) {
-      return NextResponse.json(
-        { error: result.error },
-        { status: 401 }
-      );
+    // Get user data from Firestore
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    await setAuthCookie(result.sessionToken);
+    const userData = userDoc.data();
 
-    const response = NextResponse.json({ user: result.user });
-    
-    // Also set cookie in response headers to ensure it's available immediately
-    response.cookies.set('session-token', result.sessionToken, {
+    // Update user type if provided
+    if (userType && userData?.user_type !== userType) {
+      await db.collection('users').doc(uid).update({
+        user_type: userType,
+        updated_at: new Date(),
+      });
+      userData!.user_type = userType;
+    }
+
+    // Create a session using our existing auth system
+    const sessionToken = await createSession(uid);
+
+    const response = NextResponse.json({
+      user: {
+        uid,
+        email: decodedToken.email,
+        ...userData
+      }
+    });
+
+    // Set the session cookie
+    response.cookies.set('session-token', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

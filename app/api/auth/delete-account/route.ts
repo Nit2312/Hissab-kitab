@@ -1,17 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import User from '@/lib/mongodb/models/User';
-import Group from '@/lib/mongodb/models/Group';
-import GroupMember from '@/lib/mongodb/models/GroupMember';
-import Expense from '@/lib/mongodb/models/Expense';
-import ExpenseSplit from '@/lib/mongodb/models/ExpenseSplit';
-import Settlement from '@/lib/mongodb/models/Settlement';
-import Reminder from '@/lib/mongodb/models/Reminder';
-import Customer from '@/lib/mongodb/models/Customer';
-import KhataTransaction from '@/lib/mongodb/models/KhataTransaction';
-import Session from '@/lib/mongodb/models/Session';
-import mongoose from 'mongoose';
+import { getFirestoreDB } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
 
 export async function DELETE() {
   try {
@@ -20,59 +10,170 @@ export async function DELETE() {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
-    const userId = new mongoose.Types.ObjectId(user.id);
+    const db = getFirestoreDB();
+    const userId = user.id;
 
-    // Delete all user data (MongoDB will handle cascading via application logic)
-    // Delete in order to respect foreign key constraints
+    // Delete all user data in order to respect dependencies
     
     // Delete sessions
-    await Session.deleteMany({ user_id: userId });
+    const sessionsSnapshot = await db.collection(COLLECTIONS.SESSIONS)
+      .where('user_id', '==', userId)
+      .get();
+    
+    const batch1 = db.batch();
+    sessionsSnapshot.docs.forEach(doc => batch1.delete(doc.ref));
+    await batch1.commit();
     
     // Delete reminders
-    await Reminder.deleteMany({ 
-      $or: [{ from_user_id: userId }, { to_user_id: userId }] 
-    });
+    const fromRemindersSnapshot = await db.collection(COLLECTIONS.REMINDERS)
+      .where('from_user_id', '==', userId)
+      .get();
+    
+    const toRemindersSnapshot = await db.collection(COLLECTIONS.REMINDERS)
+      .where('to_user_id', '==', userId)
+      .get();
+    
+    const batch2 = db.batch();
+    [...fromRemindersSnapshot.docs, ...toRemindersSnapshot.docs].forEach(doc => batch2.delete(doc.ref));
+    await batch2.commit();
     
     // Delete settlements
-    await Settlement.deleteMany({ 
-      $or: [{ from_user_id: userId }, { to_user_id: userId }] 
-    });
+    const fromSettlementsSnapshot = await db.collection(COLLECTIONS.SETTLEMENTS)
+      .where('from_user_id', '==', userId)
+      .get();
+    
+    const toSettlementsSnapshot = await db.collection(COLLECTIONS.SETTLEMENTS)
+      .where('to_user_id', '==', userId)
+      .get();
+    
+    const batch3 = db.batch();
+    [...fromSettlementsSnapshot.docs, ...toSettlementsSnapshot.docs].forEach(doc => batch3.delete(doc.ref));
+    await batch3.commit();
     
     // Delete expense splits (via expenses)
-    const userExpenses = await Expense.find({ paid_by: userId });
-    const expenseIds = userExpenses.map(e => e._id);
-    await ExpenseSplit.deleteMany({ expense_id: { $in: expenseIds } });
+    const userExpensesSnapshot = await db.collection(COLLECTIONS.EXPENSES)
+      .where('paid_by', '==', userId)
+      .get();
+    
+    const expenseIds = userExpensesSnapshot.docs.map(doc => doc.id);
+    
+    // Delete expense splits for user's expenses
+    if (expenseIds.length > 0) {
+      for (let i = 0; i < expenseIds.length; i += 10) {
+        const batch = expenseIds.slice(i, i + 10);
+        const splitsPromises = batch.map(expenseId =>
+          db.collection(COLLECTIONS.EXPENSE_SPLITS)
+            .where('expense_id', '==', expenseId)
+            .get()
+        );
+        const splitsSnapshots = await Promise.all(splitsPromises);
+        const batch4 = db.batch();
+        splitsSnapshots.forEach(snapshot => {
+          snapshot.docs.forEach(doc => batch4.delete(doc.ref));
+        });
+        await batch4.commit();
+      }
+    }
     
     // Delete expenses
-    await Expense.deleteMany({ paid_by: userId });
+    const batch5 = db.batch();
+    userExpensesSnapshot.docs.forEach(doc => batch5.delete(doc.ref));
+    await batch5.commit();
     
     // Delete group members
-    const userGroupMembers = await GroupMember.find({ user_id: userId });
-    const groupIds = userGroupMembers.map(gm => gm.group_id);
+    const userGroupMembersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+      .where('user_id', '==', userId)
+      .get();
+    
+    const groupIds = userGroupMembersSnapshot.docs.map(doc => doc.data().group_id);
     
     // Delete expense splits for groups user was in
-    const groupExpenses = await Expense.find({ group_id: { $in: groupIds } });
-    const groupExpenseIds = groupExpenses.map(e => e._id);
-    await ExpenseSplit.deleteMany({ expense_id: { $in: groupExpenseIds } });
+    if (groupIds.length > 0) {
+      for (let i = 0; i < groupIds.length; i += 10) {
+        const batch = groupIds.slice(i, i + 10);
+        const groupExpensesPromises = batch.map(groupId =>
+          db.collection(COLLECTIONS.EXPENSES)
+            .where('group_id', '==', groupId)
+            .get()
+        );
+        const groupExpensesSnapshots = await Promise.all(groupExpensesPromises);
+        
+        const groupExpenseIds: string[] = [];
+        groupExpensesSnapshots.forEach(snapshot => {
+          snapshot.docs.forEach(doc => groupExpenseIds.push(doc.id));
+        });
+        
+        if (groupExpenseIds.length > 0) {
+          for (let j = 0; j < groupExpenseIds.length; j += 10) {
+            const expenseBatch = groupExpenseIds.slice(j, j + 10);
+            const splitsPromises = expenseBatch.map(expenseId =>
+              db.collection(COLLECTIONS.EXPENSE_SPLITS)
+                .where('expense_id', '==', expenseId)
+                .get()
+            );
+            const splitsSnapshots = await Promise.all(splitsPromises);
+            const batch6 = db.batch();
+            splitsSnapshots.forEach(snapshot => {
+              snapshot.docs.forEach(doc => batch6.delete(doc.ref));
+            });
+            await batch6.commit();
+          }
+        }
+      }
+    }
     
     // Delete group expenses
-    await Expense.deleteMany({ group_id: { $in: groupIds } });
+    if (groupIds.length > 0) {
+      for (let i = 0; i < groupIds.length; i += 10) {
+        const batch = groupIds.slice(i, i + 10);
+        const groupExpensesPromises = batch.map(groupId =>
+          db.collection(COLLECTIONS.EXPENSES)
+            .where('group_id', '==', groupId)
+            .get()
+        );
+        const groupExpensesSnapshots = await Promise.all(groupExpensesPromises);
+        const batch7 = db.batch();
+        groupExpensesSnapshots.forEach(snapshot => {
+          snapshot.docs.forEach(doc => batch7.delete(doc.ref));
+        });
+        await batch7.commit();
+      }
+    }
     
     // Delete group members
-    await GroupMember.deleteMany({ user_id: userId });
+    const batch8 = db.batch();
+    userGroupMembersSnapshot.docs.forEach(doc => batch8.delete(doc.ref));
+    await batch8.commit();
     
     // Delete groups created by user
-    await Group.deleteMany({ created_by: userId });
+    const groupsSnapshot = await db.collection(COLLECTIONS.GROUPS)
+      .where('created_by', '==', userId)
+      .get();
+    
+    const batch9 = db.batch();
+    groupsSnapshot.docs.forEach(doc => batch9.delete(doc.ref));
+    await batch9.commit();
     
     // Delete khata transactions
-    await KhataTransaction.deleteMany({ owner_id: userId });
+    const transactionsSnapshot = await db.collection(COLLECTIONS.KHATA_TRANSACTIONS)
+      .where('owner_id', '==', userId)
+      .get();
+    
+    const batch10 = db.batch();
+    transactionsSnapshot.docs.forEach(doc => batch10.delete(doc.ref));
+    await batch10.commit();
     
     // Delete customers
-    await Customer.deleteMany({ owner_id: userId });
+    const customersSnapshot = await db.collection(COLLECTIONS.CUSTOMERS)
+      .where('owner_id', '==', userId)
+      .get();
+    
+    const batch11 = db.batch();
+    customersSnapshot.docs.forEach(doc => batch11.delete(doc.ref));
+    await batch11.commit();
     
     // Finally, delete user
-    await User.findByIdAndDelete(userId);
+    await db.collection(COLLECTIONS.USERS).doc(userId).delete();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

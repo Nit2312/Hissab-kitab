@@ -4,6 +4,7 @@ import React from "react"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,7 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Loader2, Users, Plane, Home, Briefcase, Heart } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { ToastAction } from "@/components/ui/toast"
 
 const groupTypes = [
   { value: "trip", label: "Trip", icon: Plane },
@@ -29,9 +31,10 @@ const groupTypes = [
 interface CreateGroupDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: (group: { id: string; name: string; type: string; created_at?: string }) => void
 }
 
-export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
+export function CreateGroupDialog({ open, onOpenChange, onCreated }: CreateGroupDialogProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
@@ -77,14 +80,22 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
         throw new Error(data.error || "Failed to create group")
       }
 
+      const createdGroup = await response.json()
+
       toast({
         title: "Group created",
-        description: "Your group has been successfully created.",
+        description: `"${createdGroup.name}" is ready. Add expenses or invite members anytime.`,
+        action: (
+          <ToastAction altText="View group" asChild>
+            <Link href={`/dashboard/groups/${createdGroup.id}`}>View</Link>
+          </ToastAction>
+        ),
       })
       onOpenChange(false)
       setFormData({ name: "", type: "friends", members: "" })
-      // Refresh the page to show new group
-      window.location.reload()
+      if (onCreated) {
+        onCreated({ id: createdGroup.id, name: createdGroup.name, type: createdGroup.type, created_at: createdGroup.created_at })
+      }
     } catch (err: any) {
       console.error("Error creating group:", err)
       toast({

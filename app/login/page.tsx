@@ -35,7 +35,7 @@ function LoginPageContent() {
             </div>
           )}
 
-          <LoginForm initialError={error === "unauthorized" ? "Please sign in to continue." : null} />
+          <LoginForm initialError={null} />
         </div>
       </div>
 

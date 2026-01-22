@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import Customer from '@/lib/mongodb/models/Customer';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
+import { Timestamp } from 'firebase-admin/firestore';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,19 +11,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
-    const customers = await Customer.find({ owner_id: new mongoose.Types.ObjectId(user.id) })
-      .sort({ created_at: -1 })
-      .lean();
+    const db = getFirestoreDB();
+    const customersSnapshot = await db.collection(COLLECTIONS.CUSTOMERS)
+      .where('owner_id', '==', user.id)
+      .orderBy('created_at', 'desc')
+      .get();
 
-    const customersData = customers.map(c => ({
-      id: c._id.toString(),
-      name: c.name,
-      phone: c.phone || null,
-      email: c.email || null,
-      address: c.address || null,
-      created_at: c.created_at.toISOString(),
-    }));
+    const customersData = customersSnapshot.docs.map(doc => {
+      const c = docToObject(doc);
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone || null,
+        email: c.email || null,
+        address: c.address || null,
+        created_at: c.created_at instanceof Date ? c.created_at.toISOString() : c.created_at,
+      };
+    });
 
     return NextResponse.json(customersData);
   } catch (error: any) {
@@ -44,22 +48,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    await connectDB();
-    const customer = await Customer.create({
-      owner_id: new mongoose.Types.ObjectId(user.id),
+    const customer = await createDocument(COLLECTIONS.CUSTOMERS, {
+      owner_id: user.id,
       name,
-      phone: phone || undefined,
-      email: email || undefined,
-      address: address || undefined,
+      phone: phone || null,
+      email: email || null,
+      address: address || null,
     });
 
     return NextResponse.json({
-      id: customer._id.toString(),
+      id: customer.id,
       name: customer.name,
       phone: customer.phone || null,
       email: customer.email || null,
       address: customer.address || null,
-      created_at: customer.created_at.toISOString(),
+      created_at: customer.created_at instanceof Date ? customer.created_at.toISOString() : customer.created_at,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

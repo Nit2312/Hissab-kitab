@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import Expense from '@/lib/mongodb/models/Expense';
-import ExpenseSplit from '@/lib/mongodb/models/ExpenseSplit';
-import GroupMember from '@/lib/mongodb/models/GroupMember';
-import Group from '@/lib/mongodb/models/Group';
-import User from '@/lib/mongodb/models/User';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
+import { Timestamp } from 'firebase-admin/firestore';
+
+function normalizeCategory(category: unknown) {
+  if (typeof category !== 'string') return 'Others';
+  if (category.toLowerCase() === 'other') return 'Others';
+  return category;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,38 +17,69 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    await connectDB();
-    const userId = new mongoose.Types.ObjectId(user.id);
+    const db = getFirestoreDB();
 
     // Get user type
-    const userDoc = await User.findById(userId).select('user_type');
-    const userType = userDoc?.user_type || 'personal';
+    const userDoc = await db.collection(COLLECTIONS.USERS).doc(user.id).get();
+    const userData = userDoc.data();
+    const userType = userData?.user_type || 'personal';
 
-    let expensesQuery: any = {};
+    let expenses: any[] = [];
 
     if (userType === 'personal') {
       // Get groups user is a member of
-      const groupMembers = await GroupMember.find({ user_id: userId });
-      const groupIds = groupMembers.map(gm => gm.group_id);
+      const groupMembersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+        .where('user_id', '==', user.id)
+        .get();
+      
+      const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
 
+      // Get expenses paid by user
+      const paidBySnapshot = await db.collection(COLLECTIONS.EXPENSES)
+        .where('paid_by', '==', user.id)
+        .get();
+
+      expenses = paidBySnapshot.docs.map(doc => docToObject(doc));
+
+      // Get expenses from groups user is a member of
       if (groupIds.length > 0) {
-        expensesQuery = {
-          $or: [
-            { paid_by: userId },
-            { group_id: { $in: groupIds } }
-          ]
-        };
-      } else {
-        expensesQuery = { paid_by: userId };
+        for (let i = 0; i < groupIds.length; i += 10) {
+          const batch = groupIds.slice(i, i + 10);
+          const groupExpensesSnapshot = await db.collection(COLLECTIONS.EXPENSES)
+            .where('group_id', 'in', batch)
+            .get();
+          
+          const groupExpenses = groupExpensesSnapshot.docs.map(doc => docToObject(doc));
+          // Merge and deduplicate
+          const existingIds = new Set(expenses.map(e => e.id));
+          groupExpenses.forEach(e => {
+            if (!existingIds.has(e.id)) {
+              expenses.push(e);
+            }
+          });
+        }
       }
     } else {
       // Business users: only show expenses they paid (no group expenses)
-      expensesQuery = { paid_by: userId, group_id: null };
+      const expensesSnapshot = await db.collection(COLLECTIONS.EXPENSES)
+        .where('paid_by', '==', user.id)
+        .where('group_id', '==', null)
+        .get();
+      
+      expenses = expensesSnapshot.docs.map(doc => docToObject(doc));
     }
 
-    const expenses = await Expense.find(expensesQuery)
-      .sort({ date: -1, created_at: -1 })
-      .lean();
+    // Sort expenses
+    expenses.sort((a, b) => {
+      const dateA = a.date instanceof Date ? a.date : new Date(a.date);
+      const dateB = b.date instanceof Date ? b.date : new Date(b.date);
+      if (dateB.getTime() !== dateA.getTime()) {
+        return dateB.getTime() - dateA.getTime();
+      }
+      const createdA = a.created_at instanceof Date ? a.created_at : new Date(a.created_at);
+      const createdB = b.created_at instanceof Date ? b.created_at : new Date(b.created_at);
+      return createdB.getTime() - createdA.getTime();
+    });
 
     // Fetch additional details for each expense
     const expensesWithDetails = await Promise.all(
@@ -56,41 +89,51 @@ export async function GET(request: NextRequest) {
         let paidByName = 'Unknown';
 
         // Get paid by name
-        if (expense.paid_by.toString() === user.id) {
+        if (expense.paid_by === user.id) {
           paidByName = 'You';
         } else if (expense.group_id) {
-          const member = await GroupMember.findOne({
-            group_id: expense.group_id,
-            user_id: expense.paid_by,
-          }).lean();
-          paidByName = member?.name || 'Unknown';
+          const memberSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+            .where('group_id', '==', expense.group_id)
+            .where('user_id', '==', expense.paid_by)
+            .limit(1)
+            .get();
+          
+          if (!memberSnapshot.empty) {
+            paidByName = memberSnapshot.docs[0].data().name || 'Unknown';
+          }
         } else {
-          const paidByUser = await User.findById(expense.paid_by).select('full_name').lean();
-          paidByName = (paidByUser as any)?.full_name || 'Unknown';
+          const paidByUserDoc = await db.collection(COLLECTIONS.USERS).doc(expense.paid_by).get();
+          if (paidByUserDoc.exists) {
+            paidByName = paidByUserDoc.data()?.full_name || 'Unknown';
+          }
         }
 
         // Get group name and participant count
         if (expense.group_id) {
-          const group = await Group.findById(expense.group_id).select('name').lean();
-          groupName = (group as any)?.name || null;
+          const groupDoc = await db.collection(COLLECTIONS.GROUPS).doc(expense.group_id).get();
+          if (groupDoc.exists) {
+            groupName = groupDoc.data()?.name || null;
+          }
 
-          const splitCount = await ExpenseSplit.countDocuments({ expense_id: expense._id });
-          participantCount = splitCount || 1;
+          const splitsSnapshot = await db.collection(COLLECTIONS.EXPENSE_SPLITS)
+            .where('expense_id', '==', expense.id)
+            .get();
+          participantCount = splitsSnapshot.size || 1;
         }
 
         return {
-          id: expense._id.toString(),
+          id: expense.id,
           description: expense.description,
           amount: expense.amount,
-          paid_by: expense.paid_by.toString(),
-          date: expense.date.toISOString().split('T')[0],
-          category: expense.category,
-          group_id: expense.group_id?.toString() || null,
+          paid_by: expense.paid_by,
+          date: expense.date instanceof Date ? expense.date.toISOString().split('T')[0] : expense.date.split('T')[0],
+          category: normalizeCategory(expense.category),
+          group_id: expense.group_id || null,
           split_type: expense.split_type,
           group_name: groupName,
           participant_count: participantCount,
           paid_by_name: paidByName,
-          created_at: (expense as any).created_at?.toISOString() || new Date().toISOString(),
+          created_at: expense.created_at instanceof Date ? expense.created_at.toISOString() : expense.created_at,
         };
       })
     );
@@ -116,48 +159,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Description and amount are required' }, { status: 400 });
     }
 
-    await connectDB();
-    const userId = new mongoose.Types.ObjectId(user.id);
+    const db = getFirestoreDB();
 
     // Create expense
-    const expense = await Expense.create({
+    const expenseDate = date ? new Date(date) : new Date();
+    const expense = await createDocument(COLLECTIONS.EXPENSES, {
       description,
       amount: Number(amount),
-      category: category || 'other',
-      group_id: group_id ? new mongoose.Types.ObjectId(group_id) : undefined,
+      category: normalizeCategory(category),
+      group_id: group_id || null,
       split_type: split_type || 'equal',
-      paid_by: userId,
-      date: date ? new Date(date) : new Date(),
+      paid_by: user.id,
+      date: expenseDate,
     });
 
     // Create expense splits if group is provided
     if (expense.group_id) {
       // Get all group members for this group
-      const groupMembers = await GroupMember.find({
-        group_id: expense.group_id,
-      });
+      const groupMembersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+        .where('group_id', '==', expense.group_id)
+        .get();
 
-      if (groupMembers.length > 0) {
-        const splitAmount = Number(amount) / groupMembers.length;
-        const splits = groupMembers.map((member) => ({
-          expense_id: expense._id,
-          member_id: member._id,
-          amount: splitAmount,
-          is_paid: false,
-        }));
+      if (!groupMembersSnapshot.empty) {
+        const splitAmount = Number(amount) / groupMembersSnapshot.size;
+        const batch = db.batch();
 
-        await ExpenseSplit.insertMany(splits);
+        // If the payer is a group member, mark their own share as paid.
+        // This prevents the payer from "owing themselves" in settlement calculations.
+        const payerMemberDoc = groupMembersSnapshot.docs.find((d) => d.data()?.user_id === user.id);
+
+        groupMembersSnapshot.docs.forEach((memberDoc) => {
+          const splitRef = db.collection(COLLECTIONS.EXPENSE_SPLITS).doc();
+          const isPayer = payerMemberDoc ? memberDoc.id === payerMemberDoc.id : false;
+
+          batch.set(splitRef, {
+            expense_id: expense.id,
+            member_id: memberDoc.id,
+            amount: splitAmount,
+            is_paid: isPayer,
+            created_at: Timestamp.now(),
+          });
+        });
+        
+        await batch.commit();
       }
     }
 
     return NextResponse.json({
-      id: expense._id.toString(),
+      id: expense.id,
       description: expense.description,
       amount: expense.amount,
-      paid_by: expense.paid_by.toString(),
-      date: expense.date.toISOString().split('T')[0],
-      category: expense.category,
-      group_id: expense.group_id?.toString() || null,
+      paid_by: expense.paid_by,
+      date: expense.date instanceof Date ? expense.date.toISOString().split('T')[0] : expense.date.split('T')[0],
+      category: normalizeCategory(expense.category),
+      group_id: expense.group_id || null,
       split_type: expense.split_type,
     });
   } catch (error: any) {

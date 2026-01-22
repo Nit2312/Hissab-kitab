@@ -48,14 +48,14 @@ export default function ExpensesPage() {
       setLoading(true)
       try {
         // Fetch user info to get user type and ID
-        const userResponse = await fetch("/api/auth/user");
+        const userResponse = await fetch("/api/auth/user", { credentials: "include" });
         if (!userResponse.ok) throw new Error("Not authenticated");
         const userData = await userResponse.json();
         setUserType(userData.user_type || "personal");
         setCurrentUserId(userData.id || "");
 
         // Fetch expenses
-        const expensesResponse = await fetch("/api/expenses");
+        const expensesResponse = await fetch("/api/expenses", { credentials: "include" });
         if (!expensesResponse.ok) throw new Error("Failed to fetch expenses");
         const expensesData = await expensesResponse.json();
         setExpenses(expensesData);

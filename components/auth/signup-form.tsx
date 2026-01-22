@@ -89,15 +89,11 @@ export function SignupForm() {
         </div>
         <h2 className="text-xl font-semibold">Account created successfully!</h2>
         <p className="text-muted-foreground">
-          Your account has been created. You can now sign in.
+          Welcome to HisaabKitab! Your account has been created and you can now sign in.
         </p>
-        <Button
-          variant="outline"
-          className="mt-4 bg-transparent"
-          onClick={() => router.push("/login")}
-        >
-          Back to Login
-        </Button>
+        <p className="text-sm text-muted-foreground">
+          Redirecting to login page...
+        </p>
       </div>
     )
   }
@@ -119,11 +115,10 @@ export function SignupForm() {
         >
           <Label
             htmlFor="personal"
-            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
-              formData.mode === "personal"
+            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${formData.mode === "personal"
                 ? "border-primary bg-primary/5"
                 : "border-border hover:border-primary/50"
-            }`}
+              }`}
           >
             <RadioGroupItem value="personal" id="personal" className="sr-only" />
             <Users className={`h-6 w-6 ${formData.mode === "personal" ? "text-primary" : "text-muted-foreground"}`} />
@@ -136,11 +131,10 @@ export function SignupForm() {
           </Label>
           <Label
             htmlFor="business"
-            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
-              formData.mode === "business"
+            className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${formData.mode === "business"
                 ? "border-primary bg-primary/5"
                 : "border-border hover:border-primary/50"
-            }`}
+              }`}
           >
             <RadioGroupItem value="business" id="business" className="sr-only" />
             <Store className={`h-6 w-6 ${formData.mode === "business" ? "text-primary" : "text-muted-foreground"}`} />

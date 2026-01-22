@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
-import connectDB from '@/lib/mongodb/connect';
-import GroupMember from '@/lib/mongodb/models/GroupMember';
-import User from '@/lib/mongodb/models/User';
-import mongoose from 'mongoose';
+import { getFirestoreDB, docToObject } from '@/lib/firebase/admin';
+import { COLLECTIONS } from '@/lib/firebase/collections';
+import { Timestamp } from 'firebase-admin/firestore';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,14 +18,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'group_id is required' }, { status: 400 });
     }
 
-    await connectDB();
-    const members = await GroupMember.find({
-      group_id: new mongoose.Types.ObjectId(groupId),
-    }).lean();
+    const db = getFirestoreDB();
+    const membersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+      .where('group_id', '==', groupId)
+      .get();
 
     // Fetch user details for registered members to ensure we have the latest name
     const membersData = await Promise.all(
-      members.map(async (m) => {
+      membersSnapshot.docs.map(async (doc) => {
+        const m = docToObject(doc);
         let displayName = m.name;
         let displayEmail = m.email || null;
         let displayPhone = m.phone || null;
@@ -34,12 +34,13 @@ export async function GET(request: NextRequest) {
         // If member is registered, fetch latest user info to ensure name is up to date
         if (m.user_id && m.is_registered) {
           try {
-            const user = await User.findById(m.user_id).select('full_name email phone').lean();
-            if (user) {
+            const userDoc = await db.collection(COLLECTIONS.USERS).doc(m.user_id).get();
+            if (userDoc.exists) {
+              const userData = userDoc.data();
               // Use user's full_name if available, otherwise email, otherwise phone, otherwise stored name
-              displayName = (user as any).full_name || (user as any).email?.split('@')[0] || (user as any).phone || m.name;
-              displayEmail = (user as any).email || m.email || null;
-              displayPhone = (user as any).phone || m.phone || null;
+              displayName = userData?.full_name || userData?.email?.split('@')[0] || userData?.phone || m.name;
+              displayEmail = userData?.email || m.email || null;
+              displayPhone = userData?.phone || m.phone || null;
             }
           } catch (err) {
             // If user fetch fails, use stored data
@@ -48,14 +49,14 @@ export async function GET(request: NextRequest) {
         }
 
         return {
-          id: m._id.toString(),
-          group_id: m.group_id.toString(),
-          user_id: m.user_id?.toString() || null,
+          id: m.id,
+          group_id: m.group_id,
+          user_id: m.user_id || null,
           name: displayName,
           email: displayEmail,
           phone: displayPhone,
           is_registered: m.is_registered,
-          created_at: m.created_at.toISOString(),
+          created_at: m.created_at instanceof Date ? m.created_at.toISOString() : m.created_at,
         };
       })
     );
@@ -79,15 +80,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'group_id and members array are required' }, { status: 400 });
     }
 
-    await connectDB();
-    const groupObjectId = new mongoose.Types.ObjectId(group_id);
+    const db = getFirestoreDB();
 
     // Check for duplicate members before adding
-    const existingMembers = await GroupMember.find({ group_id: groupObjectId }).lean();
+    const existingMembersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+      .where('group_id', '==', group_id)
+      .get();
+    
+    const existingMembers = existingMembersSnapshot.docs.map(doc => docToObject(doc));
     const existingUserIds = new Set(
       existingMembers
         .filter(m => m.user_id)
-        .map(m => m.user_id!.toString())
+        .map(m => m.user_id!)
     );
     const existingPhones = new Set(
       existingMembers
@@ -100,7 +104,7 @@ export async function POST(request: NextRequest) {
         .map(m => m.email!.toLowerCase().trim())
     );
 
-    const membersToAdd = [];
+    const membersToAdd: any[] = [];
     for (const m of members) {
       // Skip if user_id already exists in group
       if (m.user_id && existingUserIds.has(m.user_id)) {
@@ -121,12 +125,13 @@ export async function POST(request: NextRequest) {
       }
 
       membersToAdd.push({
-        group_id: groupObjectId,
+        group_id: group_id,
         name: m.name,
-        email: m.email || undefined,
-        phone: m.phone || undefined,
-        user_id: m.user_id ? new mongoose.Types.ObjectId(m.user_id) : undefined,
+        email: m.email || null,
+        phone: m.phone || null,
+        user_id: m.user_id || null,
         is_registered: !!m.user_id,
+        created_at: Timestamp.now(),
       });
 
       // Update existing sets to prevent duplicates in the same batch
@@ -139,18 +144,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'All members already exist in the group' }, { status: 400 });
     }
 
-    const created = await GroupMember.insertMany(membersToAdd);
+    // Add members in batch
+    const batch = db.batch();
+    const createdIds: string[] = [];
+    
+    membersToAdd.forEach(member => {
+      const memberRef = db.collection(COLLECTIONS.GROUP_MEMBERS).doc();
+      createdIds.push(memberRef.id);
+      batch.set(memberRef, member);
+    });
+    
+    await batch.commit();
+
+    // Fetch created members
+    const createdMembers = await Promise.all(
+      createdIds.map(id => getDocumentById(COLLECTIONS.GROUP_MEMBERS, id))
+    );
 
     return NextResponse.json({
       success: true,
-      members: created.map(m => ({
-        id: m._id.toString(),
-        name: m.name,
-        email: m.email || null,
-        phone: m.phone || null,
+      members: createdMembers.map(m => ({
+        id: m!.id,
+        name: m!.name,
+        email: m!.email || null,
+        phone: m!.phone || null,
       })),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
+}
+
+async function getDocumentById(collection: string, id: string) {
+  const { getFirestoreDB, docToObject } = await import('@/lib/firebase/admin');
+  const db = getFirestoreDB();
+  const doc = await db.collection(collection).doc(id).get();
+  if (!doc.exists) return null;
+  return docToObject(doc);
 }
