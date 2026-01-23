@@ -161,6 +161,61 @@ export async function POST(request: NextRequest) {
       createdIds.map(id => getDocumentById(COLLECTIONS.GROUP_MEMBERS, id))
     );
 
+    // Create expense splits for existing expenses for new members
+    // This ensures new members get their share of expenses created before they joined
+    const expensesSnapshot = await db.collection(COLLECTIONS.EXPENSES)
+      .where('group_id', '==', group_id)
+      .get();
+
+    if (!expensesSnapshot.empty) {
+      const splitBatch = db.batch();
+      const totalMembersAfter = existingMembers.length + membersToAdd.length;
+      
+      for (const expenseDoc of expensesSnapshot.docs) {
+        const expense = docToObject(expenseDoc);
+        const expenseId = expense.id;
+        const newSplitAmount = Number(expense.amount) / totalMembersAfter;
+        
+        // Get all existing splits for this expense
+        const existingSplitsSnapshot = await db.collection(COLLECTIONS.EXPENSE_SPLITS)
+          .where('expense_id', '==', expenseId)
+          .get();
+        
+        // Update existing splits to new amount (fair redistribution)
+        existingSplitsSnapshot.docs.forEach(splitDoc => {
+          splitBatch.update(splitDoc.ref, {
+            amount: newSplitAmount,
+            updated_at: new Date().toISOString(),
+          });
+        });
+        
+        // Create new splits for new members
+        for (const newMember of createdMembers) {
+          if (!newMember) continue;
+          
+          // Check if split already exists for this member and expense
+          const existingSplitForNewMember = existingSplitsSnapshot.docs.find(
+            doc => doc.data().member_id === newMember.id
+          );
+          
+          // Only create split if it doesn't already exist
+          if (!existingSplitForNewMember) {
+            const splitRef = db.collection(COLLECTIONS.EXPENSE_SPLITS).doc();
+            
+            splitBatch.set(splitRef, {
+              expense_id: expenseId,
+              member_id: newMember.id,
+              amount: newSplitAmount,
+              is_paid: false, // New members haven't paid for existing expenses
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      }
+      
+      await splitBatch.commit();
+    }
+
     return NextResponse.json({
       success: true,
       members: createdMembers.map(m => ({

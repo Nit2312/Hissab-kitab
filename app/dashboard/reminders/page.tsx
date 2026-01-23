@@ -10,14 +10,21 @@ import { Label } from "@/components/ui/label"
 import { Bell, Send, Clock, CheckCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
-type PendingReminder = {
+type PendingSettlement = {
   id: string
   name: string
   initials: string
   amount: number
-  userId: string | null
+  type: "owes_you" | "you_owe"
   lastReminder: string | null
-  status: "overdue" | "upcoming"
+  userId?: string
+  groupId?: string
+  groupName?: string
+  memberEmail?: string | null
+  memberPhone?: string | null
+  isRegistered?: boolean
+  groups?: string[]
+  groupNames?: string[]
 }
 
 type ReminderHistory = {
@@ -31,7 +38,7 @@ type ReminderHistory = {
 
 export default function RemindersPage() {
   const [autoReminders, setAutoReminders] = useState(true)
-  const [pendingReminders, setPendingReminders] = useState<PendingReminder[]>([])
+  const [pendingReminders, setPendingReminders] = useState<PendingSettlement[]>([])
   const [reminderHistory, setReminderHistory] = useState<ReminderHistory[]>([])
   const [loading, setLoading] = useState(true)
   const [currentUserId, setCurrentUserId] = useState<string>("")
@@ -50,25 +57,40 @@ export default function RemindersPage() {
       const user = await userResponse.json()
       setCurrentUserId(user.id)
 
+      // Only allow personal users to access personal reminders
+      if (user.user_type === "business") {
+        // Redirect business users to business khata page
+        window.location.href = "/dashboard/khata"
+        return
+      }
+
+      // Fetch pending settlements (people who owe you money)
+      const pendingResponse = await fetch("/api/settlements/pending")
+      if (pendingResponse.ok) {
+        const pendingData = await pendingResponse.json()
+        // Only show people who owe you money
+        const owesYouData = pendingData.filter((s: PendingSettlement) => s.type === "owes_you")
+        setPendingReminders(owesYouData)
+      } else {
+        setPendingReminders([])
+      }
+
       // Fetch reminder history
       const remindersResponse = await fetch("/api/reminders")
-      if (!remindersResponse.ok) throw new Error("Failed to fetch reminders")
-      const remindersData = await remindersResponse.json()
+      if (remindersResponse.ok) {
+        const remindersData = await remindersResponse.json()
 
-      const history: ReminderHistory[] = remindersData.map((reminder: any) => ({
-        id: reminder.id,
-        name: reminder.to_name || "Unknown",
-        initials: (reminder.to_name || "UK").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2),
-        amount: Number(reminder.amount),
-        sentDate: reminder.sent_at || reminder.created_at,
-        type: reminder.reminder_type as "manual" | "auto"
-      }))
+        const history: ReminderHistory[] = remindersData.map((reminder: any) => ({
+          id: reminder.id,
+          name: reminder.to_name || "Unknown",
+          initials: (reminder.to_name || "UK").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2),
+          amount: Number(reminder.amount),
+          sentDate: reminder.sent_at || reminder.created_at,
+          type: reminder.reminder_type as "manual" | "auto"
+        }))
 
-      setReminderHistory(history)
-
-      // TODO: Calculate pending reminders from expense splits
-      // This requires complex aggregation - for now, set empty
-      setPendingReminders([])
+        setReminderHistory(history)
+      }
     } catch (err) {
       console.error("Error fetching reminders:", err)
       toast({
@@ -81,7 +103,7 @@ export default function RemindersPage() {
     }
   }
 
-  const handleSendReminder = async (reminder: PendingReminder) => {
+  const handleSendReminder = async (reminder: PendingSettlement) => {
     try {
       const response = await fetch("/api/reminders", {
         method: "POST",
@@ -154,51 +176,76 @@ export default function RemindersPage() {
             </div>
           ) : (
             pendingReminders.map((reminder) => (
-              <div
-                key={reminder.id}
-                className="flex items-center justify-between rounded-lg border border-border p-4"
-              >
-                <div className="flex items-center gap-4">
-                  <Avatar>
-                    <AvatarFallback className={`${
-                      reminder.status === "overdue"
-                        ? "bg-destructive/10 text-destructive"
-                        : "bg-primary/10 text-primary"
-                    }`}>
-                      {reminder.initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium text-foreground">{reminder.name}</p>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={reminder.status === "overdue" ? "destructive" : "secondary"}
-                        className="text-xs"
-                      >
-                        {reminder.status === "overdue" ? "Overdue" : "Pending"}
-                      </Badge>
+              <Card key={reminder.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-4">
+                      <Avatar>
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {reminder.initials}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium text-foreground">{reminder.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          owes you ₹{reminder.amount.toLocaleString("en-IN")}
+                        </p>
+                        {reminder.groupNames && reminder.groupNames.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {reminder.groupNames.slice(0, 2).map((groupName, index) => (
+                              <Badge key={index} variant="secondary" className="text-xs">
+                                {groupName}
+                              </Badge>
+                            ))}
+                            {reminder.groupNames.length > 2 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{reminder.groupNames.length - 2} more
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    {reminder.lastReminder && (
-                      <p className="text-xs text-muted-foreground">
-                        Last reminder: {new Date(reminder.lastReminder).toLocaleDateString("en-IN")}
-                      </p>
-                    )}
+                    <div className="text-right">
+                      <span className="text-lg font-bold text-primary">
+                        ₹{reminder.amount.toLocaleString("en-IN")}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-lg font-bold text-primary">
-                    ₹{reminder.amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant={reminder.status === "overdue" ? "destructive" : "default"}
-                    onClick={() => handleSendReminder(reminder)}
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    {reminder.lastReminder ? "Remind Again" : "Send Reminder"}
-                  </Button>
-                </div>
-              </div>
+                  
+                  {/* Contact Information */}
+                  <div className="flex items-center justify-between border-t pt-3">
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      {reminder.memberEmail && (
+                        <div className="flex items-center gap-1">
+                          <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                          <span>{reminder.memberEmail}</span>
+                        </div>
+                      )}
+                      {reminder.memberPhone && (
+                        <div className="flex items-center gap-1">
+                          <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                          <span>{reminder.memberPhone}</span>
+                        </div>
+                      )}
+                      {reminder.isRegistered && (
+                        <Badge variant="outline" className="text-xs">Registered User</Badge>
+                      )}
+                      {reminder.lastReminder && (
+                        <Badge variant="secondary" className="text-xs">
+                          Last: {new Date(reminder.lastReminder).toLocaleDateString("en-IN")}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => handleSendReminder(reminder)}>
+                        <Send className="mr-2 h-4 w-4" />
+                        {reminder.lastReminder ? "Remind Again" : "Send Reminder"}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             ))
           )}
         </CardContent>

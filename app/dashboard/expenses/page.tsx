@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -54,28 +55,37 @@ export default function ExpensesPage() {
     const fetchExpenses = async () => {
       setLoading(true)
       try {
-        // Fetch user info to get user type and ID
-        const userResponse = await fetch("/api/auth/user", { credentials: "include" });
+        // Fetch user info, categories, and expenses in parallel
+        const [userResponse, categoriesResponse, expensesResponse] = await Promise.all([
+          fetch("/api/auth/user", { credentials: "include" }),
+          fetch("/api/categories"),
+          fetch("/api/expenses", { credentials: "include" })
+        ]);
+
         if (!userResponse.ok) throw new Error("Not authenticated");
         const userData = await userResponse.json();
         setUserType(userData.user_type || "personal");
         setCurrentUserId(userData.id || "");
 
-        // Fetch categories
-        const categoriesResponse = await fetch("/api/categories");
+        // Only allow personal users to access personal expenses
+        if (userData.user_type === "business") {
+          // Redirect business users to business khata page
+          window.location.href = "/dashboard/khata"
+          return
+        }
+
         if (categoriesResponse.ok) {
           const categoriesData = await categoriesResponse.json();
           setCategories(categoriesData);
         }
 
-        // Fetch expenses
-        const expensesResponse = await fetch("/api/expenses", { credentials: "include" });
         if (!expensesResponse.ok) throw new Error("Failed to fetch expenses");
         const expensesData = await expensesResponse.json();
         setExpenses(expensesData);
       } catch (err) {
         console.error("Error fetching expenses:", err);
         setExpenses([]);
+        setCategories([]);
       } finally {
         setLoading(false);
       }
@@ -162,7 +172,28 @@ export default function ExpensesPage() {
         {/* Expenses List */}
         <div className="space-y-4">
           {loading ? (
-            <div className="py-8 text-center text-muted-foreground">Loading expenses...</div>
+            <div className="space-y-4">
+              {[...Array(8)].map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="h-8 w-8 rounded-full bg-muted animate-pulse"></div>
+                      <div className="space-y-2">
+                        <div className="h-4 w-40 bg-muted rounded animate-pulse"></div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-5 w-16 bg-muted rounded animate-pulse"></div>
+                          <div className="h-3 w-20 bg-muted rounded animate-pulse"></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="h-5 w-20 bg-muted rounded animate-pulse mb-1"></div>
+                      <div className="h-3 w-16 bg-muted rounded animate-pulse"></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           ) : filteredExpenses.length > 0 ? (
             filteredExpenses.map((expense) => (
               <ExpenseCard

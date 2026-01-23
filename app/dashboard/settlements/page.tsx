@@ -8,71 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CreditCard, ArrowRight, CheckCircle } from "lucide-react"
 import { SettleUpDialog } from "@/components/settlements/settle-up-dialog"
-
-const pendingSettlements = [
-  {
-    id: "1",
-    name: "Priya Sharma",
-    initials: "PS",
-    amount: 1200,
-    type: "owes_you",
-    lastReminder: "2 days ago"
-  },
-  {
-    id: "2",
-    name: "Rahul Verma",
-    initials: "RV",
-    amount: 2500,
-    type: "owes_you",
-    lastReminder: null
-  },
-  {
-    id: "3",
-    name: "Amit Singh",
-    initials: "AS",
-    amount: 800,
-    type: "you_owe",
-    lastReminder: null
-  },
-  {
-    id: "4",
-    name: "Sneha Patel",
-    initials: "SP",
-    amount: 1650,
-    type: "you_owe",
-    lastReminder: null
-  }
-]
-
-const settlementHistory = [
-  {
-    id: "1",
-    name: "Vikram Mehta",
-    initials: "VM",
-    amount: 2080,
-    type: "received",
-    date: "2024-01-12",
-    method: "UPI"
-  },
-  {
-    id: "2",
-    name: "Kavita Rao",
-    initials: "KR",
-    amount: 950,
-    type: "paid",
-    date: "2024-01-10",
-    method: "Cash"
-  },
-  {
-    id: "3",
-    name: "Deepak Jain",
-    initials: "DJ",
-    amount: 1500,
-    type: "received",
-    date: "2024-01-05",
-    method: "Bank Transfer"
-  }
-]
+import { useToast } from "@/hooks/use-toast"
 
 type PendingSettlement = {
   id: string
@@ -82,6 +18,13 @@ type PendingSettlement = {
   type: "owes_you" | "you_owe"
   lastReminder: string | null
   userId?: string
+  groupId?: string
+  groupName?: string
+  memberEmail?: string | null
+  memberPhone?: string | null
+  isRegistered?: boolean
+  groups?: string[]
+  groupNames?: string[]
 }
 
 type SettlementHistory = {
@@ -95,6 +38,7 @@ type SettlementHistory = {
 }
 
 export default function SettlementsPage() {
+  const { toast } = useToast()
   const [isSettleOpen, setIsSettleOpen] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<PendingSettlement | null>(null)
   const [pendingSettlements, setPendingSettlements] = useState<PendingSettlement[]>([])
@@ -110,29 +54,32 @@ export default function SettlementsPage() {
         if (!userResponse.ok) throw new Error("Not authenticated")
         const user = await userResponse.json()
 
-        // Fetch settlements history
-        const settlementsResponse = await fetch("/api/settlements")
-        if (!settlementsResponse.ok) throw new Error("Failed to fetch settlements")
-        const settlements = await settlementsResponse.json()
+        // Only allow personal users to access personal settlements
+        if (user.user_type === "business") {
+          // Redirect business users to business khata page
+          window.location.href = "/dashboard/khata"
+          return
+        }
 
-        // Fetch user details for settlements
-        const history: SettlementHistory[] = await Promise.all(
-          settlements.map(async (s: any) => {
+        // Make all API calls in parallel for faster loading
+        const [settlementsResponse, pendingResponse] = await Promise.all([
+          fetch("/api/settlements"),
+          fetch("/api/settlements/pending")
+        ])
+
+        // Process settlements history
+        if (settlementsResponse.ok) {
+          const settlements = await settlementsResponse.json()
+
+          // Use user data directly from settlements without additional API calls
+          const history: SettlementHistory[] = settlements.map((s: any) => {
             const isFromUser = s.from_user_id === user.id
             const otherUserId = isFromUser ? s.to_user_id : s.from_user_id
 
-            // Try to get other user's name
-            let otherUserName = "Unknown"
-            try {
-              const otherUserResponse = await fetch(`/api/users/${otherUserId}`)
-              if (otherUserResponse.ok) {
-                const otherUser = await otherUserResponse.json()
-                otherUserName = otherUser.full_name || otherUser.email?.split("@")[0] || "Unknown"
-              }
-            } catch {
-              // Use email if available
-              otherUserName = "User"
-            }
+            // Use the name from settlement data or fallback
+            const otherUserName = s.from_user_id === user.id 
+              ? s.to_user_name || s.to_user_id 
+              : s.from_user_name || s.from_user_id
 
             const initials = otherUserName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
 
@@ -146,16 +93,26 @@ export default function SettlementsPage() {
               method: s.payment_method || "other",
             }
           })
-        )
 
-        setSettlementHistory(history)
+          setSettlementHistory(history)
+        } else {
+          console.error("Failed to fetch settlements history")
+          setSettlementHistory([])
+        }
 
-        // TODO: Calculate pending settlements from expense_splits
-        // This is complex and would require aggregating splits by user
-        // For now, we'll leave it empty or use a simplified calculation
-        setPendingSettlements([])
+        // Process pending settlements
+        if (pendingResponse.ok) {
+          const pendingData = await pendingResponse.json()
+          setPendingSettlements(pendingData)
+        } else {
+          console.error("Failed to fetch pending settlements")
+          setPendingSettlements([])
+        }
       } catch (err) {
         console.error("Error fetching settlements:", err)
+        // Set empty arrays on error to prevent infinite loading
+        setPendingSettlements([])
+        setSettlementHistory([])
       } finally {
         setLoading(false)
       }
@@ -172,9 +129,47 @@ export default function SettlementsPage() {
     .filter(s => s.type === "you_owe")
     .reduce((sum, s) => sum + s.amount, 0)
 
-  const handleSettle = (person: typeof pendingSettlements[0]) => {
+  const handleSettle = (person: PendingSettlement) => {
     setSelectedPerson(person)
     setIsSettleOpen(true)
+  }
+
+  const handleSendReminder = (person: PendingSettlement) => {
+    // TODO: Implement reminder functionality
+    toast({
+      title: "Reminder Sent",
+      description: `Reminder sent to ${person.name} for ₹${person.amount.toLocaleString("en-IN")}`,
+    })
+  }
+
+  const refreshSettlements = async () => {
+    setLoading(true)
+    try {
+      // Make all API calls in parallel for faster loading
+      const [settlementsResponse, pendingResponse] = await Promise.all([
+        fetch("/api/settlements"),
+        fetch("/api/settlements/pending")
+      ])
+
+      // Process pending settlements
+      if (pendingResponse.ok) {
+        const pendingData = await pendingResponse.json()
+        setPendingSettlements(pendingData)
+      } else {
+        console.error("Failed to fetch pending settlements")
+        setPendingSettlements([])
+      }
+    } catch (err) {
+      console.error("Error refreshing settlements:", err)
+      setPendingSettlements([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSettled = () => {
+    // Refresh settlements data when a settlement is recorded
+    refreshSettlements()
   }
 
   return (
@@ -194,12 +189,20 @@ export default function SettlementsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-primary">
-              +₹{totalOwedToYou.toLocaleString("en-IN")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              From {pendingSettlements.filter(s => s.type === "owes_you").length} people
-            </p>
+            <div className="text-2xl font-bold text-primary">
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                `+₹${totalOwedToYou.toLocaleString("en-IN")}`
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {loading ? (
+                <div className="h-4 w-16 bg-muted rounded animate-pulse mt-1"></div>
+              ) : (
+                `From ${pendingSettlements.filter(s => s.type === "owes_you").length} people`
+              )}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -209,12 +212,20 @@ export default function SettlementsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-destructive">
-              -₹{totalYouOwe.toLocaleString("en-IN")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              To {pendingSettlements.filter(s => s.type === "you_owe").length} people
-            </p>
+            <div className="text-2xl font-bold text-destructive">
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                `-₹${totalYouOwe.toLocaleString("en-IN")}`
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {loading ? (
+                <div className="h-4 w-16 bg-muted rounded animate-pulse mt-1"></div>
+              ) : (
+                `To ${pendingSettlements.filter(s => s.type === "you_owe").length} people`
+              )}
+            </div>
           </CardContent>
         </Card>
         <Card className="sm:col-span-2 lg:col-span-1">
@@ -224,14 +235,22 @@ export default function SettlementsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className={`text-2xl font-bold ${
+            <div className={`text-2xl font-bold ${
               totalOwedToYou - totalYouOwe >= 0 ? "text-primary" : "text-destructive"
             }`}>
-              {totalOwedToYou - totalYouOwe >= 0 ? "+" : ""}₹{(totalOwedToYou - totalYouOwe).toLocaleString("en-IN")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {totalOwedToYou - totalYouOwe >= 0 ? "You're in credit" : "You're in debt"}
-            </p>
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                `${totalOwedToYou - totalYouOwe >= 0 ? "+" : ""}₹${(totalOwedToYou - totalYouOwe).toLocaleString("en-IN")}`
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {loading ? (
+                <div className="h-4 w-20 bg-muted rounded animate-pulse mt-1"></div>
+              ) : (
+                totalOwedToYou - totalYouOwe >= 0 ? "You're in credit" : "You're in debt"
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -245,43 +264,110 @@ export default function SettlementsPage() {
 
         <TabsContent value="pending" className="space-y-4">
           {loading ? (
-            <div className="py-8 text-center text-muted-foreground">Loading settlements...</div>
+            <div className="space-y-4">
+              {[...Array(3)].map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-full bg-muted animate-pulse"></div>
+                        <div className="space-y-2">
+                          <div className="h-4 w-32 bg-muted rounded animate-pulse"></div>
+                          <div className="h-3 w-24 bg-muted rounded animate-pulse"></div>
+                          <div className="h-5 w-20 bg-muted rounded animate-pulse"></div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="h-6 w-16 bg-muted rounded animate-pulse"></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between border-t pt-3">
+                      <div className="flex items-center gap-4">
+                        <div className="h-3 w-24 bg-muted rounded animate-pulse"></div>
+                        <div className="h-3 w-20 bg-muted rounded animate-pulse"></div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-16 bg-muted rounded animate-pulse"></div>
+                        <div className="h-8 w-20 bg-muted rounded animate-pulse"></div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           ) : pendingSettlements.length > 0 ? (
             pendingSettlements.map((settlement) => (
             <Card key={settlement.id}>
-              <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-4">
-                  <Avatar>
-                    <AvatarFallback className={`${
-                      settlement.type === "owes_you"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-destructive/10 text-destructive"
-                    }`}>
-                      {settlement.initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium text-foreground">{settlement.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {settlement.type === "owes_you" ? "owes you" : "you owe"}
-                    </p>
-                    {settlement.lastReminder && (
-                      <p className="text-xs text-muted-foreground">
-                        Reminder sent {settlement.lastReminder}
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-4">
+                    <Avatar>
+                      <AvatarFallback className={`${
+                        settlement.type === "owes_you"
+                          ? "bg-primary/10 text-primary"
+                          : "bg-destructive/10 text-destructive"
+                      }`}>
+                        {settlement.initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium text-foreground">{settlement.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {settlement.type === "owes_you" ? "owes you" : "you owe"}
                       </p>
-                    )}
+                      {settlement.groupNames && settlement.groupNames.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {settlement.groupNames.slice(0, 2).map((groupName, index) => (
+                            <Badge key={index} variant="secondary" className="text-xs">
+                              {groupName}
+                            </Badge>
+                          ))}
+                          {settlement.groupNames.length > 2 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{settlement.groupNames.length - 2} more
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className={`text-lg font-bold ${
+                      settlement.type === "owes_you" ? "text-primary" : "text-destructive"
+                    }`}>
+                      {settlement.type === "owes_you" ? "+" : "-"}₹{settlement.amount.toLocaleString("en-IN")}
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className={`text-lg font-bold ${
-                    settlement.type === "owes_you" ? "text-primary" : "text-destructive"
-                  }`}>
-                    {settlement.type === "owes_you" ? "+" : "-"}₹{settlement.amount.toLocaleString("en-IN")}
-                  </span>
-                  <Button size="sm" onClick={() => handleSettle(settlement)}>
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Settle
-                  </Button>
+                
+                {/* Contact Information */}
+                <div className="flex items-center justify-between border-t pt-3">
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    {settlement.memberEmail && (
+                      <div className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                        <span>{settlement.memberEmail}</span>
+                      </div>
+                    )}
+                    {settlement.memberPhone && (
+                      <div className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                        <span>{settlement.memberPhone}</span>
+                      </div>
+                    )}
+                    {settlement.isRegistered && (
+                      <Badge variant="outline" className="text-xs">Registered User</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => handleSettle(settlement)}>
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      Settle
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => handleSendReminder(settlement)}>
+                      Send Reminder
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -293,7 +379,25 @@ export default function SettlementsPage() {
 
         <TabsContent value="history" className="space-y-4">
           {loading ? (
-            <div className="py-8 text-center text-muted-foreground">Loading history...</div>
+            <div className="space-y-4">
+              {[...Array(3)].map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="h-10 w-10 rounded-full bg-muted animate-pulse"></div>
+                      <div className="space-y-2">
+                        <div className="h-4 w-40 bg-muted rounded animate-pulse"></div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-5 w-16 bg-muted rounded animate-pulse"></div>
+                          <div className="h-3 w-20 bg-muted rounded animate-pulse"></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="h-6 w-16 bg-muted rounded animate-pulse"></div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           ) : settlementHistory.length > 0 ? (
             settlementHistory.map((settlement) => (
             <Card key={settlement.id}>
@@ -338,6 +442,7 @@ export default function SettlementsPage() {
         open={isSettleOpen}
         onOpenChange={setIsSettleOpen}
         person={selectedPerson}
+        onSettled={handleSettled}
       />
     </div>
   )

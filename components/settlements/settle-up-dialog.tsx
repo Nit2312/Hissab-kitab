@@ -34,9 +34,10 @@ interface SettleUpDialogProps {
     type: "owes_you" | "you_owe"
     userId?: string // Add user_id if available
   } | null
+  onSettled?: () => void // Add callback for when settlement is recorded
 }
 
-export function SettleUpDialog({ open, onOpenChange, person }: SettleUpDialogProps) {
+export function SettleUpDialog({ open, onOpenChange, person, onSettled }: SettleUpDialogProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
@@ -72,6 +73,7 @@ export function SettleUpDialog({ open, onOpenChange, person }: SettleUpDialogPro
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          from_user_id: fromUserId,
           to_user_id: toUserId,
           amount: settlementAmount,
           payment_method: formData.method === "bank" ? "bank_transfer" : formData.method,
@@ -94,8 +96,11 @@ export function SettleUpDialog({ open, onOpenChange, person }: SettleUpDialogPro
         title: "Settlement recorded",
         description: "Payment has been successfully recorded.",
       })
-      // Refresh the page
-      window.location.reload()
+      
+      // Call the callback to refresh data
+      if (onSettled) {
+        onSettled()
+      }
     } catch (err: any) {
       console.error("Error creating settlement:", err)
       toast({

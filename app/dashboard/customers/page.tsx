@@ -50,6 +50,18 @@ export default function CustomersPage() {
     const fetchCustomers = async () => {
       setLoading(true)
       try {
+        // Get current user
+        const userResponse = await fetch("/api/auth/user")
+        if (!userResponse.ok) throw new Error("Not authenticated")
+        const user = await userResponse.json()
+
+        // Only allow business users to access customers page
+        if (user.user_type !== "business") {
+          // Redirect personal users to personal dashboard
+          window.location.href = "/dashboard"
+          return
+        }
+
         const response = await fetch("/api/customers");
         if (!response.ok) throw new Error("Failed to fetch customers");
         const data = await response.json();

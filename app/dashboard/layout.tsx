@@ -25,6 +25,10 @@ export default function DashboardLayout({
   const userName = user.full_name || user.email?.split("@")[0] || "User"
   const businessName = user.business_name || null
 
+  // Debug: Log the user object and detected type
+  console.log('[Layout Debug] user:', user)
+  console.log('[Layout Debug] detected userType:', userType)
+
   return (
     <DashboardShell
       userType={userType}

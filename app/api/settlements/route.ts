@@ -28,6 +28,35 @@ export async function GET(request: NextRequest) {
       allSettlements.set(doc.id, docToObject(doc));
     });
 
+    // Fetch user details for all unique user IDs
+    const userIds = new Set<string>();
+    allSettlements.forEach(s => {
+      if (s.from_user_id) userIds.add(s.from_user_id);
+      if (s.to_user_id) userIds.add(s.to_user_id);
+    });
+
+    const userMap = new Map<string, any>();
+    for (const userId of userIds) {
+      try {
+        const userDoc = await db.collection(COLLECTIONS.USERS).doc(userId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          if (userData) {
+            userMap.set(userId, {
+              full_name: userData.full_name || userData.email?.split("@")[0] || "Unknown",
+              email: userData.email || null
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching user ${userId}:`, error);
+        userMap.set(userId, {
+          full_name: "Unknown",
+          email: null
+        });
+      }
+    }
+
     const settlementsData = Array.from(allSettlements.values()).map(s => ({
       id: s.id,
       from_user_id: s.from_user_id,
@@ -39,6 +68,8 @@ export async function GET(request: NextRequest) {
       notes: s.notes || null,
       settled_at: s.settled_at instanceof Date ? s.settled_at.toISOString() : s.settled_at,
       created_at: s.created_at instanceof Date ? s.created_at.toISOString() : s.created_at,
+      from_user_name: userMap.get(s.from_user_id)?.full_name || "Unknown",
+      to_user_name: userMap.get(s.to_user_id)?.full_name || "Unknown",
     }));
 
     // Sort by created_at descending (in-memory to avoid composite index requirements)

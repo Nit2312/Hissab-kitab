@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useRequireAuth } from "@/hooks/use-require-auth"
+import { useExpenses, useGroups, useSettlements } from "@/hooks/use-optimized-data"
+import { SkeletonGrid, SkeletonRow, LoadingSpinner } from "@/components/ui/loading-skeleton"
 import { Plus, Receipt, Users, CreditCard, TrendingUp, Clock } from "lucide-react"
 
 type User = {
@@ -58,46 +60,49 @@ function isSameOrAfter(a: Date, b: Date) {
 export default function DashboardPage() {
   useRequireAuth()
 
-  const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<User | null>(null)
-  const [groups, setGroups] = useState<Group[]>([])
-  const [expenses, setExpenses] = useState<Expense[]>([])
-  const [settlements, setSettlements] = useState<Settlement[]>([])
+  
+  // Use optimized hooks with caching
+  const { expenses, loading: expensesLoading } = useExpenses()
+  const { groups, loading: groupsLoading } = useGroups()
+  const { settlements, loading: settlementsLoading } = useSettlements()
 
   useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true)
+    const fetchUser = async () => {
       try {
         const userRes = await fetch("/api/auth/user", { credentials: "include" })
         if (!userRes.ok) throw new Error("Not authenticated")
         const userData = (await userRes.json()) as User
         setUser(userData)
 
-        const [groupsRes, expensesRes, settlementsRes] = await Promise.all([
-          fetch("/api/groups", { credentials: "include" }),
-          fetch("/api/expenses", { credentials: "include" }),
-          fetch("/api/settlements", { credentials: "include" }),
-        ])
-
-        setGroups(groupsRes.ok ? await groupsRes.json() : [])
-        setExpenses(expensesRes.ok ? await expensesRes.json() : [])
-        setSettlements(settlementsRes.ok ? await settlementsRes.json() : [])
+        // Business users should be redirected
+        if (userData.user_type === "business") {
+          window.location.href = "/dashboard/khata"
+          return
+        }
       } catch (e) {
         setUser(null)
-        setGroups([])
-        setExpenses([])
-        setSettlements([])
-      } finally {
-        setLoading(false)
       }
     }
 
-    fetchAll()
+    fetchUser()
   }, [])
 
+  const loading = expensesLoading || groupsLoading || settlementsLoading
+
   const insights = useMemo(() => {
+    if (!expenses.length) return {
+      thisMonthTotal: 0,
+      last7Total: 0,
+      totalAllTime: 0,
+      topCategory: "—",
+      categoryRows: [],
+      recent: [],
+      settlementsTotal: 0,
+    }
+
     const now = new Date()
-    const monthStart = startOfMonthISO(now)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const last7Start = new Date(now)
     last7Start.setDate(last7Start.getDate() - 6)
     last7Start.setHours(0, 0, 0, 0)
@@ -110,8 +115,8 @@ export default function DashboardPage() {
       }))
       .filter((e) => !Number.isNaN(e._date.getTime()))
 
-    const thisMonthExpenses = parsedExpenses.filter((e) => isSameOrAfter(e._date, monthStart))
-    const last7Expenses = parsedExpenses.filter((e) => isSameOrAfter(e._date, last7Start))
+    const thisMonthExpenses = parsedExpenses.filter((e) => e._date >= monthStart)
+    const last7Expenses = parsedExpenses.filter((e) => e._date >= last7Start)
 
     const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + e.amount, 0)
     const last7Total = last7Expenses.reduce((sum, e) => sum + e.amount, 0)
@@ -128,7 +133,6 @@ export default function DashboardPage() {
       .sort((a, b) => b.total - a.total)
 
     const topCategory = categoryRows[0]?.category || "—"
-
     const recent = parsedExpenses
       .slice()
       .sort((a, b) => b._date.getTime() - a._date.getTime())
@@ -167,7 +171,26 @@ export default function DashboardPage() {
       </CardHeader>
       <CardContent>
         {loading ? (
-          <div className="py-6 text-sm text-muted-foreground">Loading…</div>
+          <div className="space-y-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-4">
+                  <div className="h-8 w-8 rounded-full bg-muted animate-pulse"></div>
+                  <div className="space-y-2">
+                    <div className="h-4 w-32 bg-muted rounded animate-pulse"></div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-5 w-16 bg-muted rounded animate-pulse"></div>
+                      <div className="h-3 w-20 bg-muted rounded animate-pulse"></div>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="h-5 w-16 bg-muted rounded animate-pulse mb-1"></div>
+                  <div className="h-3 w-20 bg-muted rounded animate-pulse"></div>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : recent.length === 0 ? (
           <div className="py-6 text-sm text-muted-foreground">No expenses yet.</div>
         ) : (
@@ -209,7 +232,14 @@ export default function DashboardPage() {
       </CardHeader>
       <CardContent>
         {loading ? (
-          <div className="py-6 text-sm text-muted-foreground">Loading…</div>
+          <div className="space-y-3">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="flex items-center justify-between gap-3">
+                <div className="h-4 w-24 bg-muted rounded animate-pulse"></div>
+                <div className="h-4 w-16 bg-muted rounded animate-pulse"></div>
+              </div>
+            ))}
+          </div>
         ) : categoryRows.length === 0 ? (
           <div className="py-6 text-sm text-muted-foreground">No data for this month.</div>
         ) : (
@@ -269,51 +299,65 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">This Month</CardTitle>
-            <TrendingUp className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">
-              {loading ? "—" : formatINR(insights.thisMonthTotal)}
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                formatINR(insights.thisMonthTotal)
+              )}
             </div>
             <p className="text-xs text-muted-foreground">Spending since month start</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Last 7 Days</CardTitle>
-            <Clock className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">
-              {loading ? "—" : formatINR(insights.last7Total)}
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                formatINR(insights.last7Total)
+              )}
             </div>
             <p className="text-xs text-muted-foreground">Short-term trend</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Top Category</CardTitle>
-            <Receipt className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">
-              {loading ? "—" : insights.topCategory}
+              {loading ? (
+                <div className="h-8 w-20 bg-muted rounded animate-pulse"></div>
+              ) : (
+                insights.topCategory
+              )}
             </div>
             <p className="text-xs text-muted-foreground">Based on this month</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Groups</CardTitle>
-            <Users className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-foreground">{loading ? "—" : groups.length}</div>
+            <div className="text-2xl font-bold text-foreground">
+              {loading ? (
+                <div className="h-8 w-12 bg-muted rounded animate-pulse"></div>
+              ) : (
+                groups.length
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">Where you share expenses</p>
           </CardContent>
         </Card>

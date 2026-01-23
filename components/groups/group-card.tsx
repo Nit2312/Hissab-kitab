@@ -31,7 +31,7 @@ interface GroupCardProps {
     totalExpenses: number
     yourBalance: number
     balanceType: "owed" | "owe" | "settled"
-    lastActivity: string
+    lastActivity: string | null
   }
 }
 
@@ -45,9 +45,18 @@ export function GroupCard({ group }: GroupCardProps) {
   }, [])
 
   const formattedActivity = mounted && group.lastActivity
-    ? formatDistanceToNow(new Date(group.lastActivity), { addSuffix: true })
-    : group.lastActivity 
-    ? "Recent activity"
+    ? (() => {
+        try {
+          const date = new Date(group.lastActivity)
+          // Check if the date is valid
+          if (isNaN(date.getTime())) {
+            return "No activity"
+          }
+          return formatDistanceToNow(date, { addSuffix: true })
+        } catch (error) {
+          return "No activity"
+        }
+      })()
     : "No activity"
 
   return (

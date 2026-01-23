@@ -48,15 +48,29 @@ export default function KhataPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
+  const [userType, setUserType] = useState<string>("personal")
   const [totalOutstanding, setTotalOutstanding] = useState(0)
   const [totalCollectedToday, setTotalCollectedToday] = useState(0)
   const [totalCreditToday, setTotalCreditToday] = useState(0)
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchKhataData = async () => {
       setLoading(true)
       try {
+        // Get current user
+        const userResponse = await fetch("/api/auth/user", { credentials: "include" })
+        if (!userResponse.ok) throw new Error("Not authenticated")
+        const userData = await userResponse.json()
+        setUserType(userData.user_type || "personal")
+
+        // Only allow business users to access khata
+        if (userData.user_type !== "business") {
+          // Redirect personal users to personal dashboard
+          window.location.href = "/dashboard"
+          return
+        }
+
         // Fetch customers with balances
         const customersResponse = await fetch("/api/khata/customers")
         if (!customersResponse.ok) throw new Error("Failed to fetch customers")
@@ -103,7 +117,7 @@ export default function KhataPage() {
       }
     }
 
-    fetchData()
+    fetchKhataData()
   }, [isAddOpen])
 
   const filteredCustomers = customers.filter(customer =>

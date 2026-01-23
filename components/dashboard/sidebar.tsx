@@ -44,7 +44,12 @@ interface DashboardSidebarProps {
 export function DashboardSidebar({ userType }: DashboardSidebarProps) {
   const pathname = usePathname()
   const isBusinessUser = userType === "business"
-  const navItems = isBusinessUser ? businessNavItems : personalNavItems
+  
+  // Debug: Log the user type
+  console.log('[Sidebar Debug] userType:', userType, 'isBusinessUser:', isBusinessUser)
+  
+  // Extra safety check: Always use personal navigation if user_type is not explicitly "business"
+  const navItems = (userType && userType === "business") ? businessNavItems : personalNavItems
 
   return (
     <>
@@ -65,11 +70,11 @@ export function DashboardSidebar({ userType }: DashboardSidebarProps) {
           <div className="px-6 py-3 border-b border-border">
             <div className={cn(
               "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium",
-              isBusinessUser 
+              (userType && userType === "business") 
                 ? "bg-accent/20 text-accent-foreground" 
                 : "bg-primary/10 text-primary"
             )}>
-              {isBusinessUser ? (
+              {(userType && userType === "business") ? (
                 <>
                   <Store className="h-3 w-3" />
                   Business Mode
@@ -88,7 +93,7 @@ export function DashboardSidebar({ userType }: DashboardSidebarProps) {
             <div className="space-y-6">
               <div>
                 <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {isBusinessUser ? "Khata Management" : "Expense Tracking"}
+                  {(userType && userType === "business") ? "Khata Management" : "Expense Tracking"}
                 </p>
                 <nav className="space-y-1">
                   {navItems.map((item) => {
@@ -112,45 +117,25 @@ export function DashboardSidebar({ userType }: DashboardSidebarProps) {
                 </nav>
               </div>
 
-              {/* Show other mode as secondary option */}
-              <div>
-                <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {isBusinessUser ? "Personal Features" : "Business Features"}
-                </p>
-                <nav className="space-y-1">
-                  {(isBusinessUser ? personalNavItems.slice(0, 3) : businessNavItems.slice(0, 2)).map((item) => (
-                    <Link key={item.href} href={item.href}>
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start gap-3 text-muted-foreground"
-                      >
-                        <item.icon className="h-4 w-4" />
-                        {item.label}
-                      </Button>
-                    </Link>
-                  ))}
-                </nav>
+              {/* Bottom Navigation */}
+              <div className="border-t border-border p-3">
+                {bottomNavItems.map((item) => (
+                  <Link key={item.href} href={item.href}>
+                    <Button
+                      variant={pathname === item.href ? "secondary" : "ghost"}
+                      className={cn(
+                        "w-full justify-start gap-3",
+                        pathname === item.href && "bg-primary/10 text-primary"
+                      )}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </Button>
+                  </Link>
+                ))}
               </div>
             </div>
           </ScrollArea>
-
-          {/* Bottom Navigation */}
-          <div className="border-t border-border p-3">
-            {bottomNavItems.map((item) => (
-              <Link key={item.href} href={item.href}>
-                <Button
-                  variant={pathname === item.href ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full justify-start gap-3",
-                    pathname === item.href && "bg-primary/10 text-primary"
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </Button>
-              </Link>
-            ))}
-          </div>
         </div>
       </aside>
 

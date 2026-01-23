@@ -13,7 +13,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Bell,
@@ -31,6 +36,7 @@ import {
   TrendingUp
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 
 const personalNavItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Overview" },
@@ -63,7 +69,7 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
   const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const isBusinessUser = userType === "business"
-  const navItems = isBusinessUser ? businessNavItems : personalNavItems
+  const navItems = (userType && userType === "business") ? businessNavItems : personalNavItems
 
   const handleLogout = async () => {
     await fetch("/api/auth/signout", { method: "POST", credentials: "include" })
@@ -93,6 +99,9 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
           </Button>
         </SheetTrigger>
         <SheetContent side="left" className="w-[280px] p-0">
+          <VisuallyHidden>
+            <SheetTitle>Navigation Menu</SheetTitle>
+          </VisuallyHidden>
           <div className="flex h-full flex-col">
             <div className="flex h-16 items-center gap-2 border-b border-border px-6">
               <Link href="/dashboard" className="flex items-center gap-2" onClick={() => setMobileMenuOpen(false)}>
@@ -107,11 +116,11 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
             <div className="px-6 py-3 border-b border-border">
               <div className={cn(
                 "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium",
-                isBusinessUser 
+                (userType && userType === "business") 
                   ? "bg-accent/20 text-accent-foreground" 
                   : "bg-primary/10 text-primary"
               )}>
-                {isBusinessUser ? (
+                {(userType && userType === "business") ? (
                   <>
                     <Store className="h-3 w-3" />
                     {businessName || "Business Mode"}
@@ -129,7 +138,7 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
               <div className="space-y-6">
                 <div>
                   <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {isBusinessUser ? "Khata Management" : "Expense Tracking"}
+                    {(userType && userType === "business") ? "Khata Management" : "Expense Tracking"}
                   </p>
                   <nav className="space-y-1">
                     {navItems.map((item) => (
@@ -140,26 +149,6 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
                             "w-full justify-start gap-3",
                             pathname === item.href && "bg-primary/10 text-primary"
                           )}
-                        >
-                          <item.icon className="h-4 w-4" />
-                          {item.label}
-                        </Button>
-                      </Link>
-                    ))}
-                  </nav>
-                </div>
-
-                {/* Other mode as secondary */}
-                <div>
-                  <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {isBusinessUser ? "Personal Features" : "Business Features"}
-                  </p>
-                  <nav className="space-y-1">
-                    {(isBusinessUser ? personalNavItems.slice(0, 3) : businessNavItems.slice(0, 2)).map((item) => (
-                      <Link key={item.href} href={item.href} onClick={() => setMobileMenuOpen(false)}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start gap-3 text-muted-foreground"
                         >
                           <item.icon className="h-4 w-4" />
                           {item.label}

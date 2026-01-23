@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Card, CardContent } from "@/components/ui/card"
 import { Plus, Search } from "lucide-react"
 import { GroupCard } from "@/components/groups/group-card"
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog"
@@ -19,7 +20,7 @@ type Group = {
   totalExpenses: number
   yourBalance: number
   balanceType: "owed" | "owe" | "settled"
-  lastActivity: string
+  lastActivity: string | null
 }
 
 export default function GroupsPage() {
@@ -33,38 +34,86 @@ export default function GroupsPage() {
   const fetchGroups = async () => {
     setLoading(true)
     try {
-      // Fetch groups
-      const groupsResponse = await fetch("/api/groups")
+      // Get current user
+      const userResponse = await fetch("/api/auth/user", { credentials: "include" })
+      if (!userResponse.ok) throw new Error("Not authenticated")
+      const user = await userResponse.json()
+
+      // Only allow personal users to access personal groups
+      if (user.user_type === "business") {
+        // Redirect business users to business khata page
+        window.location.href = "/dashboard/khata"
+        return
+      }
+
+      // Fetch groups and expenses in parallel
+      const [groupsResponse, expensesResponse] = await Promise.all([
+        fetch("/api/groups"),
+        fetch("/api/expenses")
+      ])
+      
       if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
       const groupsData = await groupsResponse.json()
+      
+      const allExpenses = expensesResponse.ok ? await expensesResponse.json() : []
 
-      // Fetch members and expenses for each group
-      const groupsWithDetails = await Promise.all(
-        groupsData.map(async (group: any) => {
-          // Fetch members
-          const membersResponse = await fetch(`/api/groups/members?group_id=${group.id}`)
-          const members = membersResponse.ok ? await membersResponse.json() : []
-
-          // Fetch recent expenses for this group
-          const expensesResponse = await fetch("/api/expenses")
-          const allExpenses = expensesResponse.ok ? await expensesResponse.json() : []
-          const groupExpenses = allExpenses.filter((e: any) => e.group_id === group.id)
-
-          const totalExpenses = groupExpenses.reduce((sum: number, e: any) => sum + Number(e.amount), 0)
-          const lastActivityDate = groupExpenses.length > 0
-            ? groupExpenses.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date
-            : null
-
-          return {
-            ...group,
-            members: members.map((m: any) => ({ name: m.name, user_id: m.user_id })),
-            totalExpenses,
-            yourBalance: 0, // TODO: Calculate actual balance
-            balanceType: "settled" as const,
-            lastActivity: lastActivityDate,
-          }
-        })
+      // Fetch members for all groups in parallel
+      const membersPromises = groupsData.map((group: any) => 
+        fetch(`/api/groups/members?group_id=${group.id}`)
+          .then(res => res.ok ? res.json() : [])
       )
+      
+      const allMembers = await Promise.all(membersPromises)
+
+      // Process groups with fetched data
+      const groupsWithDetails = groupsData.map((group: any, index: number) => {
+        const members = allMembers[index]
+        const groupExpenses = allExpenses.filter((e: any) => e.group_id === group.id)
+
+        const totalExpenses = groupExpenses.reduce((sum: number, e: any) => sum + Number(e.amount), 0)
+        const lastActivityDate = groupExpenses.length > 0
+          ? groupExpenses.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date
+          : null
+
+        // Calculate user's balance in this group
+        let yourBalance = 0
+        let balanceType: "owed" | "owe" | "settled" = "settled"
+
+        if (groupExpenses.length > 0) {
+          // Calculate total paid by user
+          const totalPaidByUser = groupExpenses
+            .filter((e: any) => e.paid_by === user.id)
+            .reduce((sum: number, e: any) => sum + Number(e.amount), 0)
+
+          // Calculate user's share of all expenses
+          const totalUserShare = groupExpenses.reduce((sum: number, e: any) => {
+            // For equal splits, divide by number of members
+            const memberCount = members.length || 1
+            return sum + (Number(e.amount) / memberCount)
+          }, 0)
+
+          yourBalance = totalPaidByUser - totalUserShare
+          
+          // Determine balance type
+          if (Math.abs(yourBalance) < 0.01) {
+            balanceType = "settled"
+          } else if (yourBalance > 0) {
+            balanceType = "owed" // User is owed money
+          } else {
+            balanceType = "owe" // User owes money
+            yourBalance = Math.abs(yourBalance)
+          }
+        }
+
+        return {
+          ...group,
+          members,
+          totalExpenses,
+          yourBalance,
+          balanceType,
+          lastActivity: lastActivityDate || null
+        }
+      })
 
       setGroups(groupsWithDetails)
     } catch (err) {
@@ -115,7 +164,28 @@ export default function GroupsPage() {
 
         {/* Groups Grid */}
         {loading ? (
-          <div className="py-8 text-center text-muted-foreground">Loading groups...</div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[...Array(6)].map((_, i) => (
+              <Card key={i}>
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="h-6 w-24 bg-muted rounded animate-pulse"></div>
+                      <div className="h-4 w-16 bg-muted rounded animate-pulse"></div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-4 w-32 bg-muted rounded animate-pulse"></div>
+                      <div className="h-3 w-20 bg-muted rounded animate-pulse"></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="h-8 w-8 rounded-full bg-muted animate-pulse"></div>
+                      <div className="h-5 w-20 bg-muted rounded animate-pulse"></div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         ) : filteredGroups.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filteredGroups.map((group) => (

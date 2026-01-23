@@ -8,10 +8,10 @@ interface KhataCustomerCardProps {
   customer: {
     id: string
     name: string
-    phone: string
+    phone: string | null
     balance: number
     type: "credit" | "settled"
-    lastTransaction: string
+    lastTransaction: string | null
     totalCredit: number
     totalPaid: number
   }
@@ -19,10 +19,12 @@ interface KhataCustomerCardProps {
 
 export function KhataCustomerCard({ customer }: KhataCustomerCardProps) {
   const initials = customer.name.split(" ").map(n => n[0]).join("")
-  const formattedDate = new Date(customer.lastTransaction).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short"
-  })
+  const formattedDate = customer.lastTransaction 
+    ? new Date(customer.lastTransaction).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short"
+      })
+    : "No transactions"
 
   return (
     <Link href={`/dashboard/customers/${customer.id}`}>

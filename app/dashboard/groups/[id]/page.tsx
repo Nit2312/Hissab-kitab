@@ -123,8 +123,20 @@ export default function GroupDetailPage() {
   const fetchGroupDetails = async () => {
     setLoading(true)
     try {
-      // Get current user
-      const userResponse = await fetch("/api/auth/user")
+      // Get current user and fetch all data in parallel
+      const [userResponse, groupsResponse, membersResponse, expensesResponse] = await Promise.all([
+        fetch("/api/auth/user"),
+        fetch("/api/groups"),
+        fetch(`/api/groups/members?group_id=${groupId}`, {
+          cache: 'no-store',
+          credentials: "include",
+        }),
+        fetch("/api/expenses", {
+          cache: 'no-store',
+          credentials: "include",
+        })
+      ])
+
       if (!userResponse.ok) {
         router.push("/login")
         return
@@ -132,8 +144,6 @@ export default function GroupDetailPage() {
       const userData = await userResponse.json()
       setCurrentUserId(userData.id)
 
-      // Fetch group details
-      const groupsResponse = await fetch("/api/groups")
       if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
       const groupsData = await groupsResponse.json()
       const groupData = groupsData.find((g: any) => g.id === groupId)
@@ -143,20 +153,10 @@ export default function GroupDetailPage() {
       }
       setGroup(groupData)
 
-      // Fetch members
-      const membersResponse = await fetch(`/api/groups/members?group_id=${groupId}`, {
-        cache: 'no-store', // Ensure fresh data
-        credentials: "include",
-      })
       if (!membersResponse.ok) throw new Error("Failed to fetch members")
       const membersData = await membersResponse.json()
       setMembers(membersData)
 
-      // Fetch expenses
-      const expensesResponse = await fetch("/api/expenses", {
-        cache: 'no-store', // Ensure fresh data
-        credentials: "include",
-      })
       if (!expensesResponse.ok) throw new Error("Failed to fetch expenses")
       const allExpenses = await expensesResponse.json()
       const expensesData = allExpenses
@@ -425,8 +425,20 @@ export default function GroupDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">₹{totalExpenses.toLocaleString("en-IN")}</p>
-            <p className="text-xs text-muted-foreground">{expenses.length} expenses</p>
+            <div className="text-2xl font-bold">
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                `₹${totalExpenses.toLocaleString("en-IN")}`
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {loading ? (
+                <div className="h-4 w-16 bg-muted rounded animate-pulse mt-1"></div>
+              ) : (
+                `${expenses.length} expenses`
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -437,10 +449,20 @@ export default function GroupDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-primary">₹{youPaid.toLocaleString("en-IN")}</p>
-            <p className="text-xs text-muted-foreground">
-              {expenses.filter(e => e.paid_by === currentUserId).length} expenses
-            </p>
+            <div className="text-2xl font-bold text-primary">
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                `₹${youPaid.toLocaleString("en-IN")}`
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {loading ? (
+                <div className="h-4 w-16 bg-muted rounded animate-pulse mt-1"></div>
+              ) : (
+                `${expenses.filter(e => e.paid_by === currentUserId).length} expenses`
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -451,8 +473,14 @@ export default function GroupDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">₹{yourShare.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</p>
-            <p className="text-xs text-muted-foreground">Equal split</p>
+            <div className="text-2xl font-bold">
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                `₹${yourShare.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">Equal split</div>
           </CardContent>
         </Card>
 
@@ -464,20 +492,30 @@ export default function GroupDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              {balance > 0 ? (
-                <TrendingUp className="h-4 w-4 text-primary" />
-              ) : balance < 0 ? (
-                <TrendingDown className="h-4 w-4 text-destructive" />
-              ) : null}
-              <p className={`text-2xl font-bold ${
-                balance > 0 ? "text-primary" : balance < 0 ? "text-destructive" : "text-muted-foreground"
-              }`}>
-                {balance > 0 ? "+" : ""}₹{Math.abs(balance).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-              </p>
+              {loading ? (
+                <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
+              ) : (
+                <>
+                  {balance > 0 ? (
+                    <TrendingUp className="h-4 w-4 text-primary" />
+                  ) : balance < 0 ? (
+                    <TrendingDown className="h-4 w-4 text-destructive" />
+                  ) : null}
+                  <div className={`text-2xl font-bold ${
+                    balance > 0 ? "text-primary" : balance < 0 ? "text-destructive" : "text-muted-foreground"
+                  }`}>
+                    {balance > 0 ? "+" : ""}₹{Math.abs(balance).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                  </div>
+                </>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {balance > 0 ? "You are owed" : balance < 0 ? "You owe" : "Settled up"}
-            </p>
+            <div className="text-xs text-muted-foreground">
+              {loading ? (
+                <div className="h-4 w-20 bg-muted rounded animate-pulse mt-1"></div>
+              ) : (
+                balance > 0 ? "You are owed" : balance < 0 ? "You owe" : "Settled up"
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>

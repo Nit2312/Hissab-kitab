@@ -13,8 +13,8 @@ export function useRequireAuth() {
     const auth = getAuth(app);
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
-        // Get user data from your API
-        fetch("/api/auth/user", { credentials: "include" })
+        // Get user data from your API with cache-busting
+        fetch(`/api/auth/user?t=${Date.now()}`, { credentials: "include" })
           .then(res => {
             if (res.ok) return res.json();
             throw new Error("Failed to get user data");

@@ -4,11 +4,43 @@ import { getFirestoreDB, docToObject, createDocument, prepareDataForFirestore } 
 import { COLLECTIONS } from '@/lib/firebase/collections';
 import { Timestamp } from 'firebase-admin/firestore';
 
+// Simple cache for groups (5 minutes TTL)
+const groupsCache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+function getFromCache(key: string): any | null {
+  const cached = groupsCache.get(key);
+  if (!cached) return null;
+  
+  const now = Date.now();
+  if (now - cached.timestamp > cached.ttl) {
+    groupsCache.delete(key);
+    return null;
+  }
+  
+  return cached.data;
+}
+
+function setCache(key: string, data: any): void {
+  groupsCache.set(key, {
+    data,
+    timestamp: Date.now(),
+    ttl: CACHE_TTL
+  });
+};
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // Check cache first
+    const cacheKey = `groups_${user.id}`;
+    const cachedData = getFromCache(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
     }
 
     const db = getFirestoreDB();
@@ -21,6 +53,7 @@ export async function GET(request: NextRequest) {
     const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
 
     if (groupIds.length === 0) {
+      setCache(cacheKey, []);
       return NextResponse.json([]);
     }
 
@@ -45,6 +78,8 @@ export async function GET(request: NextRequest) {
       updated_at: g.updated_at instanceof Date ? g.updated_at.toISOString() : g.updated_at,
     }));
 
+    // Cache the result
+    setCache(cacheKey, groupsData);
     return NextResponse.json(groupsData);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
@@ -109,6 +144,9 @@ export async function POST(request: NextRequest) {
       });
       await batch.commit();
     }
+
+    // Clear cache for this user
+    groupsCache.delete(`groups_${user.id}`);
 
     return NextResponse.json({
       id: group.id,

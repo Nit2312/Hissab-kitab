@@ -4,6 +4,31 @@ import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admi
 import { COLLECTIONS } from '@/lib/firebase/collections';
 import { Timestamp } from 'firebase-admin/firestore';
 
+// Simple cache for expenses (5 minutes TTL)
+const expensesCache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+function getFromCache(key: string): any | null {
+  const cached = expensesCache.get(key);
+  if (!cached) return null;
+  
+  const now = Date.now();
+  if (now - cached.timestamp > cached.ttl) {
+    expensesCache.delete(key);
+    return null;
+  }
+  
+  return cached.data;
+}
+
+function setCache(key: string, data: any): void {
+  expensesCache.set(key, {
+    data,
+    timestamp: Date.now(),
+    ttl: CACHE_TTL
+  });
+};
+
 function normalizeCategory(category: unknown) {
   if (typeof category !== 'string') return 'Others';
   if (category.toLowerCase() === 'other') return 'Others';
@@ -15,6 +40,13 @@ export async function GET(request: NextRequest) {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // Check cache first
+    const cacheKey = `expenses_${user.id}`;
+    const cachedData = getFromCache(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
     }
 
     const db = getFirestoreDB();
@@ -138,6 +170,8 @@ export async function GET(request: NextRequest) {
       })
     );
 
+    // Cache the result
+    setCache(cacheKey, expensesWithDetails);
     return NextResponse.json(expensesWithDetails);
   } catch (error: any) {
     console.error('Error fetching expenses:', error);
@@ -204,6 +238,9 @@ export async function POST(request: NextRequest) {
         await batch.commit();
       }
     }
+
+    // Clear cache for this user
+    expensesCache.delete(`expenses_${user.id}`);
 
     return NextResponse.json({
       id: expense.id,
