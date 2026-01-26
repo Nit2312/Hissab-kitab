@@ -64,12 +64,14 @@ export default function RemindersPage() {
         return
       }
 
-      // Fetch pending settlements (people who owe you money)
+      // Fetch pending settlements (only people who owe you money)
       const pendingResponse = await fetch("/api/settlements/pending")
       if (pendingResponse.ok) {
         const pendingData = await pendingResponse.json()
-        // Only show people who owe you money
+        console.log('Pending settlements data for reminders:', pendingData)
+        // Only show people who owe you money (not people you owe)
         const owesYouData = pendingData.filter((s: PendingSettlement) => s.type === "owes_you")
+        console.log('Filtered owes you data:', owesYouData)
         setPendingReminders(owesYouData)
       } else {
         setPendingReminders([])
@@ -172,7 +174,7 @@ export default function RemindersPage() {
           ) : pendingReminders.length === 0 ? (
             <div className="py-8 text-center">
               <p className="text-muted-foreground">No pending payments</p>
-              <p className="text-sm text-muted-foreground">People you owe money will appear here</p>
+              <p className="text-sm text-muted-foreground">People who owe you money will appear here</p>
             </div>
           ) : (
             pendingReminders.map((reminder) => (
@@ -208,12 +210,12 @@ export default function RemindersPage() {
                     </div>
                     <div className="text-right">
                       <span className="text-lg font-bold text-primary">
-                        ₹{reminder.amount.toLocaleString("en-IN")}
+                        +₹{reminder.amount.toLocaleString("en-IN")}
                       </span>
                     </div>
                   </div>
                   
-                  {/* Contact Information */}
+                  {/* Action Buttons */}
                   <div className="flex items-center justify-between border-t pt-3">
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       {reminder.memberEmail && (
@@ -222,25 +224,14 @@ export default function RemindersPage() {
                           <span>{reminder.memberEmail}</span>
                         </div>
                       )}
-                      {reminder.memberPhone && (
-                        <div className="flex items-center gap-1">
-                          <span className="w-3 h-3 rounded-full bg-blue-500"></span>
-                          <span>{reminder.memberPhone}</span>
-                        </div>
-                      )}
                       {reminder.isRegistered && (
                         <Badge variant="outline" className="text-xs">Registered User</Badge>
                       )}
-                      {reminder.lastReminder && (
-                        <Badge variant="secondary" className="text-xs">
-                          Last: {new Date(reminder.lastReminder).toLocaleDateString("en-IN")}
-                        </Badge>
-                      )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" onClick={() => handleSendReminder(reminder)}>
+                      <Button size="sm" variant="outline" onClick={() => handleSendReminder(reminder)}>
                         <Send className="mr-2 h-4 w-4" />
-                        {reminder.lastReminder ? "Remind Again" : "Send Reminder"}
+                        Send Reminder
                       </Button>
                     </div>
                   </div>

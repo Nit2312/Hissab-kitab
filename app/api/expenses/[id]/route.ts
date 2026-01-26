@@ -134,6 +134,22 @@ export async function DELETE(
     batch.delete(db.collection(COLLECTIONS.EXPENSES).doc(resolvedParams.id));
     await batch.commit();
 
+    // Broadcast WebSocket event for real-time updates (optional)
+    try {
+      const { broadcastExpenseUpdate } = await import('@/lib/websocket/server');
+      broadcastExpenseUpdate('deleted', {
+        id: resolvedParams.id,
+        paid_by: expense.paid_by,
+        date: expense.date,
+        amount: expense.amount,
+        category: expense.category,
+        description: expense.description
+      }, user.id);
+    } catch (wsError: any) {
+      // WebSocket server might not be running - that's okay
+      console.log('WebSocket broadcast skipped (server not available):', wsError?.message || wsError);
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting expense:', error);

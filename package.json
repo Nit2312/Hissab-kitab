@@ -6,7 +6,9 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "websocket": "node scripts/setup-websocket.js",
+    "dev:full": "concurrently \"npm run websocket\" \"npm run dev\""
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -44,7 +46,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
-    "date-fns": "4.1.0",
+    "date-fns": "^4.1.0",
     "embla-carousel-react": "8.5.1",
     "firebase": "^12.8.0",
     "firebase-admin": "^13.0.2",
@@ -58,6 +60,7 @@
     "react-hook-form": "^7.60.0",
     "react-resizable-panels": "^2.1.7",
     "recharts": "2.15.4",
+    "socket.io": "^4.8.3",
     "sonner": "^1.7.4",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
@@ -70,6 +73,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
     "dotenv": "^17.2.3",
     "googleapis": "^170.1.0",
     "postcss": "^8.5",

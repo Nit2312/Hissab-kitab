@@ -26,6 +26,7 @@ type Group = {
 export default function GroupsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)
@@ -54,6 +55,9 @@ export default function GroupsPage() {
       
       if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
       const groupsData = await groupsResponse.json()
+      
+      console.log('🔍 Groups Page - Fetched groups data:', groupsData);
+      console.log('🔍 Groups Page - Current user:', user.id, user.email);
       
       const allExpenses = expensesResponse.ok ? await expensesResponse.json() : []
 
@@ -130,7 +134,23 @@ export default function GroupsPage() {
 
   useEffect(() => {
     fetchGroups()
-  }, [isCreateOpen])
+  }, [isCreateOpen, refreshKey])
+
+  // Check if we're returning from a group page (possible deletion/edit)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Page became visible, possibly returning from group details
+        setRefreshKey(prev => prev + 1)
+      }
+    }
+
+    // Also check on mount in case we navigated here
+    setRefreshKey(prev => prev + 1)
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
 
   const filteredGroups = groups.filter(group =>
     group.name.toLowerCase().includes(searchQuery.toLowerCase())

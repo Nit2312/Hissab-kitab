@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
+import { getDocumentById, isValidFirestoreId, deleteDocument, updateDocument } from '@/lib/firebase/helpers';
 import { getFirestoreDB, docToObject, createDocument, prepareDataForFirestore } from '@/lib/firebase/admin';
 import { COLLECTIONS } from '@/lib/firebase/collections';
 import { Timestamp } from 'firebase-admin/firestore';
+import { broadcastGroupUpdate } from '@/lib/websocket/server';
 
 // Simple cache for groups (5 minutes TTL)
 const groupsCache = new Map<string, { data: any; timestamp: number; ttl: number }>();
@@ -36,10 +38,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    console.log('🔍 Groups API - User:', user.id, user.email);
+
     // Check cache first
     const cacheKey = `groups_${user.id}`;
     const cachedData = getFromCache(cacheKey);
     if (cachedData) {
+      console.log('🔍 Groups API - Returning cached data for user:', user.id);
       return NextResponse.json(cachedData);
     }
 
@@ -51,8 +56,20 @@ export async function GET(request: NextRequest) {
       .get();
 
     const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
+    
+    console.log('🔍 Groups API - Found group memberships:', {
+      userId: user.id,
+      groupIds,
+      memberCount: groupMembersSnapshot.docs.length,
+      memberDocs: groupMembersSnapshot.docs.map(doc => ({
+        groupId: doc.data().group_id,
+        userId: doc.data().user_id,
+        name: doc.data().name
+      }))
+    });
 
     if (groupIds.length === 0) {
+      console.log('🔍 Groups API - No groups found for user:', user.id);
       setCache(cacheKey, []);
       return NextResponse.json([]);
     }
@@ -77,6 +94,12 @@ export async function GET(request: NextRequest) {
       created_at: g.created_at instanceof Date ? g.created_at.toISOString() : g.created_at,
       updated_at: g.updated_at instanceof Date ? g.updated_at.toISOString() : g.updated_at,
     }));
+
+    console.log('🔍 Groups API - Final groups data:', {
+      userId: user.id,
+      groupsCount: groupsData.length,
+      groups: groupsData.map(g => ({ id: g.id, name: g.name, createdBy: g.created_by }))
+    });
 
     // Cache the result
     setCache(cacheKey, groupsData);
@@ -127,8 +150,9 @@ export async function POST(request: NextRequest) {
     });
 
     // Add other members if provided
+    let membersToAdd: any[] = [];
     if (members && Array.isArray(members) && members.length > 0) {
-      const membersToAdd = members.map((m: any) => ({
+      membersToAdd = members.map((m: any) => ({
         group_id: group.id,
         name: m.name,
         email: m.email || null,
@@ -147,6 +171,25 @@ export async function POST(request: NextRequest) {
 
     // Clear cache for this user
     groupsCache.delete(`groups_${user.id}`);
+
+    // Broadcast WebSocket event for real-time updates
+    try {
+      // Get all member IDs for broadcasting
+      const memberIds = [user.id, ...(members?.map((m: any) => m.user_id) || [])];
+      
+      broadcastGroupUpdate('updated', {
+        id: group.id,
+        name: group.name,
+        description: group.description || null,
+        type: group.type,
+        created_by: group.created_by,
+        created_at: group.created_at instanceof Date ? group.created_at.toISOString() : group.created_at,
+        updated_at: group.updated_at instanceof Date ? group.updated_at.toISOString() : group.updated_at,
+        members: membersToAdd.length + 1, // +1 for creator
+      }, memberIds);
+    } catch (wsError) {
+      console.warn('Failed to broadcast WebSocket event:', wsError);
+    }
 
     return NextResponse.json({
       id: group.id,
