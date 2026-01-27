@@ -103,10 +103,8 @@ export default function SettlementsPage() {
         // Process pending settlements - only show money you owe
         if (pendingResponse.ok) {
           const pendingData = await pendingResponse.json()
-          console.log('Pending settlements data:', pendingData)
           // Only show people you owe money to
           const youOweData = pendingData.filter((s: PendingSettlement) => s.type === "you_owe")
-          console.log('Filtered you owe data:', youOweData)
           setYouOweList(youOweData)
         } else {
           console.error("Failed to fetch pending settlements")

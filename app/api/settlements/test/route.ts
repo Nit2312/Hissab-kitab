@@ -8,8 +8,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    console.log('🔥 Test endpoint called for user:', user.id, user.email);
-
     // Return mock data to test the frontend
     const mockData = [
       {
@@ -30,12 +28,10 @@ export async function GET(request: NextRequest) {
       }
     ];
 
-    console.log('🔥 Returning mock data:', mockData);
-
     return NextResponse.json(mockData);
 
   } catch (error: any) {
-    console.error('🔥 Test endpoint error:', error);
+    console.error('Test endpoint error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }

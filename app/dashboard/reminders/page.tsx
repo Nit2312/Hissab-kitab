@@ -68,10 +68,8 @@ export default function RemindersPage() {
       const pendingResponse = await fetch("/api/settlements/pending")
       if (pendingResponse.ok) {
         const pendingData = await pendingResponse.json()
-        console.log('Pending settlements data for reminders:', pendingData)
         // Only show people who owe you money (not people you owe)
         const owesYouData = pendingData.filter((s: PendingSettlement) => s.type === "owes_you")
-        console.log('Filtered owes you data:', owesYouData)
         setPendingReminders(owesYouData)
       } else {
         setPendingReminders([])

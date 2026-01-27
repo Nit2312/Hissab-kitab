@@ -38,13 +38,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    console.log('🔍 Groups API - User:', user.id, user.email);
-
     // Check cache first
     const cacheKey = `groups_${user.id}`;
     const cachedData = getFromCache(cacheKey);
     if (cachedData) {
-      console.log('🔍 Groups API - Returning cached data for user:', user.id);
       return NextResponse.json(cachedData);
     }
 
@@ -56,20 +53,8 @@ export async function GET(request: NextRequest) {
       .get();
 
     const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
-    
-    console.log('🔍 Groups API - Found group memberships:', {
-      userId: user.id,
-      groupIds,
-      memberCount: groupMembersSnapshot.docs.length,
-      memberDocs: groupMembersSnapshot.docs.map(doc => ({
-        groupId: doc.data().group_id,
-        userId: doc.data().user_id,
-        name: doc.data().name
-      }))
-    });
 
     if (groupIds.length === 0) {
-      console.log('🔍 Groups API - No groups found for user:', user.id);
       setCache(cacheKey, []);
       return NextResponse.json([]);
     }
@@ -94,12 +79,6 @@ export async function GET(request: NextRequest) {
       created_at: g.created_at instanceof Date ? g.created_at.toISOString() : g.created_at,
       updated_at: g.updated_at instanceof Date ? g.updated_at.toISOString() : g.updated_at,
     }));
-
-    console.log('🔍 Groups API - Final groups data:', {
-      userId: user.id,
-      groupsCount: groupsData.length,
-      groups: groupsData.map(g => ({ id: g.id, name: g.name, createdBy: g.created_by }))
-    });
 
     // Cache the result
     setCache(cacheKey, groupsData);

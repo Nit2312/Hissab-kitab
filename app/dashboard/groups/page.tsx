@@ -56,9 +56,6 @@ export default function GroupsPage() {
       if (!groupsResponse.ok) throw new Error("Failed to fetch groups")
       const groupsData = await groupsResponse.json()
       
-      console.log('🔍 Groups Page - Fetched groups data:', groupsData);
-      console.log('🔍 Groups Page - Current user:', user.id, user.email);
-      
       const allExpenses = expensesResponse.ok ? await expensesResponse.json() : []
 
       // Fetch members for all groups in parallel

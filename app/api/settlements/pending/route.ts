@@ -14,8 +14,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    console.log('Calculating pending settlements for user:', user.id, user.email);
-
     const db = getFirestoreDB();
 
     // Get all groups where user is a member
@@ -24,7 +22,6 @@ export async function GET(request: NextRequest) {
       .get();
 
     const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
-    console.log('User is member of groups:', groupIds);
 
     // Also check for personal expenses (non-group expenses)
     const personalExpensesSnapshot = await db.collection(COLLECTIONS.EXPENSES)
@@ -32,10 +29,7 @@ export async function GET(request: NextRequest) {
       .where('group_id', '==', null)
       .get();
 
-    console.log(`Found ${personalExpensesSnapshot.docs.length} personal expenses`);
-
     if (groupIds.length === 0 && personalExpensesSnapshot.docs.length === 0) {
-      console.log('User is not a member of any groups and has no personal expenses');
       return NextResponse.json([]);
     }
 
@@ -113,8 +107,6 @@ export async function GET(request: NextRequest) {
           };
         });
 
-        console.log(`Group ${groupId}: Found ${expenses.length} expenses`);
-
         // Get splits for this group
         const expenseIds = expenses.map((e) => e.id);
         const splits: any[] = [];
@@ -139,8 +131,6 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        console.log(`Group ${groupId}: Found ${splits.length} splits`);
-
         // Calculate balances (same logic as groups/balances API)
         const shareByMember = new Map<string, number>();
         const paidByMember = new Map<string, number>();
@@ -161,11 +151,6 @@ export async function GET(request: NextRequest) {
 
         splits.forEach((s) => {
           shareByMember.set(s.member_id, (shareByMember.get(s.member_id) || 0) + s.amount);
-        });
-
-        console.log(`Group ${groupId} balances:`, {
-          paidByMember: Object.fromEntries(paidByMember),
-          shareByMember: Object.fromEntries(shareByMember)
         });
 
         // Calculate transfers
@@ -215,8 +200,6 @@ export async function GET(request: NextRequest) {
           } else {
             continue; // User not involved
           }
-
-          console.log(`Settlement found: ${fromMember.name} -> ${toMember.name}, amount: ${amount}, type: ${type}`);
 
           // Get member name
           let memberName = otherPerson.name;
@@ -308,7 +291,6 @@ export async function GET(request: NextRequest) {
       .filter(s => s.amount > 0.01)
       .sort((a, b) => b.amount - a.amount);
 
-    console.log('Final settlements to return:', finalSettlements);
     return NextResponse.json(finalSettlements);
   } catch (error: any) {
     console.error('Error calculating pending settlements:', error);
