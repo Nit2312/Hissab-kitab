@@ -2,7 +2,6 @@ import React from "react"
 import { Providers } from "@/components/ssr-provider"
 import type { Metadata } from 'next'
 import { Inter, Poppins } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
 const _inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
@@ -45,7 +44,6 @@ export default function RootLayout({
       <body className={`font-sans antialiased`}>
         <Providers>
           {children}
-          <Analytics />
         </Providers>
       </body>
     </html>
