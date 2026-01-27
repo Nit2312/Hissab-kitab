@@ -103,8 +103,22 @@ export default function SettlementsPage() {
         // Process pending settlements - only show money you owe
         if (pendingResponse.ok) {
           const pendingData = await pendingResponse.json()
+          console.log('🔍 Settlements Page - Raw pending data:', pendingData)
+          console.log('🔍 Settlements Page - Current user ID:', user.id)
+          
+          // Log each settlement for debugging
+          pendingData.forEach((settlement: any, index: number) => {
+            console.log(`🔍 Settlements Page - Settlement ${index}:`, {
+              name: settlement.name,
+              amount: settlement.amount,
+              type: settlement.type
+            })
+          });
+          
           // Only show people you owe money to
           const youOweData = pendingData.filter((s: PendingSettlement) => s.type === "you_owe")
+          console.log('🔍 Settlements Page - Filtered you_owe data:', youOweData)
+          console.log('🔍 Settlements Page - Final you_owe count:', youOweData.length)
           setYouOweList(youOweData)
         } else {
           console.error("Failed to fetch pending settlements")
