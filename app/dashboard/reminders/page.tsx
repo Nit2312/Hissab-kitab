@@ -68,10 +68,26 @@ export default function RemindersPage() {
       const pendingResponse = await fetch("/api/settlements/pending")
       if (pendingResponse.ok) {
         const pendingData = await pendingResponse.json()
+        console.log('🔍 Reminders Page - Raw pending data:', pendingData)
+        console.log('🔍 Reminders Page - Current user ID:', currentUserId)
+        console.log('🔍 Reminders Page - Pending data length:', pendingData.length)
+        
+        // Log each settlement for debugging
+        pendingData.forEach((settlement: any, index: number) => {
+          console.log(`🔍 Reminders Page - Settlement ${index}:`, {
+            name: settlement.name,
+            amount: settlement.amount,
+            type: settlement.type
+          })
+        });
+        
         // Only show people who owe you money (not people you owe)
         const owesYouData = pendingData.filter((s: PendingSettlement) => s.type === "owes_you")
+        console.log('🔍 Reminders Page - Filtered owes_you data:', owesYouData)
+        console.log('🔍 Reminders Page - Final owes_you count:', owesYouData.length)
         setPendingReminders(owesYouData)
       } else {
+        console.error('🔍 Reminders Page - Failed to fetch pending settlements')
         setPendingReminders([])
       }
 

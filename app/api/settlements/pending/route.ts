@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    console.log('🔍 Pending API - User:', user.id, user.email);
+
     const db = getFirestoreDB();
 
     // Get all groups where user is a member
@@ -45,21 +47,51 @@ export async function GET(request: NextRequest) {
     // Calculate settled amounts per user
     const settledAmounts = new Map<string, number>();
     
+    console.log('🔍 Pending API - Processing settlements where user is receiver...');
     // Process settlements where user is the receiver (someone paid user)
     settlementsSnapshot.docs.forEach(doc => {
       const settlement = docToObject(doc);
       if (settlement.to_user_id) {
-        settledAmounts.set(settlement.to_user_id, (settledAmounts.get(settlement.to_user_id) || 0) + Number(settlement.amount));
+        const currentAmount = settledAmounts.get(settlement.to_user_id) || 0;
+        const newAmount = currentAmount + Number(settlement.amount);
+        settledAmounts.set(settlement.to_user_id, newAmount);
+        
+        // Debug for Bunny specifically
+        if (settlement.to_user_id === '38DSoc14eSVYEAmkBSmjXb2iMom2') {
+          console.log('🔍 Pending API - Bunny receiver settlement:', {
+            from_user_id: settlement.from_user_id,
+            to_user_id: settlement.to_user_id,
+            amount: settlement.amount,
+            currentAmount,
+            newAmount
+          });
+        }
       }
     });
 
+    console.log('🔍 Pending API - Processing settlements where user is payer...');
     // Process settlements where user is the payer (user paid someone)
     toSettlementsSnapshot.docs.forEach(doc => {
       const settlement = docToObject(doc);
       if (settlement.from_user_id) {
-        settledAmounts.set(settlement.from_user_id, (settledAmounts.get(settlement.from_user_id) || 0) - Number(settlement.amount));
+        const currentAmount = settledAmounts.get(settlement.from_user_id) || 0;
+        const newAmount = currentAmount - Number(settlement.amount);
+        settledAmounts.set(settlement.from_user_id, newAmount);
+        
+        // Debug for Bunny specifically
+        if (settlement.from_user_id === '38DSoc14eSVYEAmkBSmjXb2iMom2') {
+          console.log('🔍 Pending API - Bunny payer settlement:', {
+            from_user_id: settlement.from_user_id,
+            to_user_id: settlement.to_user_id,
+            amount: settlement.amount,
+            currentAmount,
+            newAmount
+          });
+        }
       }
     });
+
+    console.log('🔍 Pending API - Final settled amounts:', Object.fromEntries(settledAmounts));
 
     // Get all pending settlements across all groups
     const allPendingSettlements = [];
@@ -201,6 +233,18 @@ export async function GET(request: NextRequest) {
             continue; // User not involved
           }
 
+          // Debug logging for Bunny specifically
+          if (otherPerson.name && otherPerson.name.toLowerCase().includes('bunny')) {
+            console.log('🔍 Pending API - Bunny settlement found:', {
+              fromMember: fromMember.name,
+              toMember: toMember.name,
+              amount,
+              type,
+              isFromUser,
+              isToUser
+            });
+          }
+
           // Get member name
           let memberName = otherPerson.name;
           if (otherPerson.user_id) {
@@ -243,23 +287,27 @@ export async function GET(request: NextRequest) {
     // Aggregate amounts for the same person across multiple groups
     const aggregatedSettlements = new Map();
     
+    console.log('🔍 Pending API - All pending settlements before filtering:', allPendingSettlements);
+    
     for (const settlement of allPendingSettlements) {
       const key = settlement.userId || settlement.name;
       const existing = aggregatedSettlements.get(key);
       
-      // Get settled amount for this user
-      const settledAmount = settledAmounts.get(settlement.userId || '') || 0;
-      
-      // Calculate net amount (pending - settled)
-      const netAmount = settlement.amount - settledAmount;
-      
-      // Only include if there's still a pending amount
-      if (netAmount <= 0.01) continue;
+      // Debug logging for Bunny specifically
+      if (settlement.name && settlement.name.toLowerCase().includes('bunny')) {
+        console.log('🔍 Pending API - Processing Bunny settlement:', {
+          name: settlement.name,
+          amount: settlement.amount,
+          type: settlement.type,
+          key,
+          existing: existing ? 'found' : 'not found'
+        });
+      }
       
       if (existing) {
         // Aggregate amounts
         if (existing.type === settlement.type) {
-          existing.amount += netAmount;
+          existing.amount += settlement.amount;
           // Merge group information
           if (settlement.groupId && !existing.groups.includes(settlement.groupId)) {
             existing.groups.push(settlement.groupId);
@@ -268,18 +316,34 @@ export async function GET(request: NextRequest) {
         } else {
           // If types are different, calculate net
           const currentAmount = existing.amount;
-          if (netAmount > currentAmount) {
-            existing.amount = netAmount - currentAmount;
+          
+          if (settlement.name && settlement.name.toLowerCase().includes('bunny')) {
+            console.log('🔍 Pending API - Bunny aggregation - different types:', {
+              existingType: existing.type,
+              existingAmount: currentAmount,
+              newType: settlement.type,
+              newAmount: settlement.amount
+            });
+          }
+          
+          if (settlement.amount > currentAmount) {
+            existing.amount = settlement.amount - currentAmount;
             existing.type = settlement.type;
           } else {
-            existing.amount = currentAmount - netAmount;
+            existing.amount = currentAmount - settlement.amount;
             existing.type = existing.type;
+          }
+          
+          if (settlement.name && settlement.name.toLowerCase().includes('bunny')) {
+            console.log('🔍 Pending API - Bunny aggregation result:', {
+              finalAmount: existing.amount,
+              finalType: existing.type
+            });
           }
         }
       } else {
         aggregatedSettlements.set(key, { 
           ...settlement,
-          amount: netAmount,
           groups: [settlement.groupId],
           groupNames: [settlement.groupName]
         });
@@ -291,6 +355,7 @@ export async function GET(request: NextRequest) {
       .filter(s => s.amount > 0.01)
       .sort((a, b) => b.amount - a.amount);
 
+    console.log('🔍 Pending API - Final settlements to return:', finalSettlements);
     return NextResponse.json(finalSettlements);
   } catch (error: any) {
     console.error('Error calculating pending settlements:', error);

@@ -6,30 +6,75 @@ import { COLLECTIONS } from '@/lib/firebase/collections';
 import { Timestamp } from 'firebase-admin/firestore';
 import { broadcastGroupUpdate } from '@/lib/websocket/server';
 
-// Simple cache for groups (5 minutes TTL)
-const groupsCache = new Map<string, { data: any; timestamp: number; ttl: number }>();
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
-
-function getFromCache(key: string): any | null {
-  const cached = groupsCache.get(key);
-  if (!cached) return null;
-  
-  const now = Date.now();
-  if (now - cached.timestamp > cached.ttl) {
-    groupsCache.delete(key);
-    return null;
-  }
-  
-  return cached.data;
+// Enhanced cache with LRU eviction and better performance
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+  ttl: number;
+  hits: number;
 }
 
-function setCache(key: string, data: any): void {
-  groupsCache.set(key, {
-    data,
-    timestamp: Date.now(),
-    ttl: CACHE_TTL
-  });
-};
+class LRUCache<K, V> {
+  private cache = new Map<K, CacheEntry>();
+  private maxSize: number;
+
+  constructor(maxSize: number = 100) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: K): V | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    
+    const now = Date.now();
+    if (now - entry.timestamp > entry.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    // Update hit count and move to end (LRU)
+    entry.hits++;
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    
+    return entry.data;
+  }
+
+  set(key: K, data: V, ttl: number): void {
+    // Remove oldest if at max size
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey !== undefined) {
+        this.cache.delete(firstKey);
+      }
+    }
+    
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl,
+      hits: 0
+    });
+  }
+
+  delete(key: K): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+}
+
+// Optimized cache instances
+const groupsCache = new LRUCache<string, any>(50);
+const membersCache = new LRUCache<string, any>(100);
+const CACHE_TTL = 10 * 60 * 1000 // 10 minutes
+const MEMBERS_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,7 +85,7 @@ export async function GET(request: NextRequest) {
 
     // Check cache first
     const cacheKey = `groups_${user.id}`;
-    const cachedData = getFromCache(cacheKey);
+    const cachedData = groupsCache.get(cacheKey);
     if (cachedData) {
       return NextResponse.json(cachedData);
     }
@@ -55,7 +100,7 @@ export async function GET(request: NextRequest) {
     const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
 
     if (groupIds.length === 0) {
-      setCache(cacheKey, []);
+      groupsCache.set(cacheKey, [], CACHE_TTL);
       return NextResponse.json([]);
     }
 
@@ -81,7 +126,7 @@ export async function GET(request: NextRequest) {
     }));
 
     // Cache the result
-    setCache(cacheKey, groupsData);
+    groupsCache.set(cacheKey, groupsData, CACHE_TTL);
     return NextResponse.json(groupsData);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
