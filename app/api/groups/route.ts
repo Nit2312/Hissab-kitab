@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/auth';
+import { getDocumentById, isValidFirestoreId, deleteDocument, updateDocument } from '@/lib/firebase/helpers';
 import { getFirestoreDB, docToObject, createDocument, prepareDataForFirestore } from '@/lib/firebase/admin';
 import { COLLECTIONS } from '@/lib/firebase/collections';
 import { Timestamp } from 'firebase-admin/firestore';
+import { broadcastGroupUpdate } from '@/lib/websocket/server';
 
 // Simple cache for groups (5 minutes TTL)
 const groupsCache = new Map<string, { data: any; timestamp: number; ttl: number }>();
@@ -127,8 +129,9 @@ export async function POST(request: NextRequest) {
     });
 
     // Add other members if provided
+    let membersToAdd: any[] = [];
     if (members && Array.isArray(members) && members.length > 0) {
-      const membersToAdd = members.map((m: any) => ({
+      membersToAdd = members.map((m: any) => ({
         group_id: group.id,
         name: m.name,
         email: m.email || null,
@@ -147,6 +150,25 @@ export async function POST(request: NextRequest) {
 
     // Clear cache for this user
     groupsCache.delete(`groups_${user.id}`);
+
+    // Broadcast WebSocket event for real-time updates
+    try {
+      // Get all member IDs for broadcasting
+      const memberIds = [user.id, ...(members?.map((m: any) => m.user_id) || [])];
+      
+      broadcastGroupUpdate('updated', {
+        id: group.id,
+        name: group.name,
+        description: group.description || null,
+        type: group.type,
+        created_by: group.created_by,
+        created_at: group.created_at instanceof Date ? group.created_at.toISOString() : group.created_at,
+        updated_at: group.updated_at instanceof Date ? group.updated_at.toISOString() : group.updated_at,
+        members: membersToAdd.length + 1, // +1 for creator
+      }, memberIds);
+    } catch (wsError) {
+      console.warn('Failed to broadcast WebSocket event:', wsError);
+    }
 
     return NextResponse.json({
       id: group.id,

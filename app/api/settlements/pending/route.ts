@@ -23,7 +23,13 @@ export async function GET(request: NextRequest) {
 
     const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
 
-    if (groupIds.length === 0) {
+    // Also check for personal expenses (non-group expenses)
+    const personalExpensesSnapshot = await db.collection(COLLECTIONS.EXPENSES)
+      .where('paid_by', '==', user.id)
+      .where('group_id', '==', null)
+      .get();
+
+    if (groupIds.length === 0 && personalExpensesSnapshot.docs.length === 0) {
       return NextResponse.json([]);
     }
 
@@ -184,11 +190,15 @@ export async function GET(request: NextRequest) {
           let otherPerson: any;
 
           if (isFromUser) {
-            type = "owes_you";
-            otherPerson = toMember;
-          } else {
+            // User is the one who OWES money (fromId)
             type = "you_owe";
+            otherPerson = toMember;
+          } else if (isToUser) {
+            // User is the one who is OWED money (toId, they paid)
+            type = "owes_you";
             otherPerson = fromMember;
+          } else {
+            continue; // User not involved
           }
 
           // Get member name

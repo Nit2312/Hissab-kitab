@@ -3,6 +3,26 @@ import { getCurrentUser } from '@/lib/auth/auth';
 import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admin';
 import { COLLECTIONS } from '@/lib/firebase/collections';
 import { Timestamp } from 'firebase-admin/firestore';
+import { broadcastExpenseUpdate } from '@/lib/websocket/server';
+
+// Helper function for settlement broadcasting
+function broadcastSettlementUpdate(type: 'created' | 'updated', settlement: any, userIds: string[]) {
+  // For now, use the expense update broadcast with a custom type
+  // In a full implementation, you might want a separate settlement broadcast function
+  try {
+    const server = require('@/lib/websocket/server').getSocketServer();
+    if (server) {
+      server.io.emit('settlement_update', {
+        type: `settlement_${type}`,
+        data: settlement,
+        timestamp: Date.now(),
+        userIds
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to broadcast settlement update:', error);
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -109,6 +129,27 @@ export async function POST(request: NextRequest) {
       status: 'completed',
       settled_at: now,
     });
+
+    // Broadcast WebSocket event for real-time updates
+    try {
+      // Notify both parties involved in the settlement
+      const involvedUserIds = [user.id, to_user_id];
+      
+      broadcastSettlementUpdate('created', {
+        id: settlement.id,
+        from_user_id: settlement.from_user_id,
+        to_user_id: settlement.to_user_id,
+        group_id: settlement.group_id || null,
+        amount: settlement.amount,
+        payment_method: settlement.payment_method || null,
+        status: settlement.status,
+        notes: settlement.notes || null,
+        settled_at: settlement.settled_at instanceof Date ? settlement.settled_at.toISOString() : settlement.settled_at,
+        created_at: settlement.created_at instanceof Date ? settlement.created_at.toISOString() : settlement.created_at,
+      }, involvedUserIds);
+    } catch (wsError) {
+      console.warn('Failed to broadcast WebSocket event:', wsError);
+    }
 
     return NextResponse.json({
       id: settlement.id,

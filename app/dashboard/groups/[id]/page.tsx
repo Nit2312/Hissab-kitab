@@ -109,6 +109,7 @@ export default function GroupDetailPage() {
   const [isEditMemberOpen, setIsEditMemberOpen] = useState(false)
   const [selectedMember, setSelectedMember] = useState<Member | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isDeleteGroupDialogOpen, setIsDeleteGroupDialogOpen] = useState(false)
   const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false)
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null)
   const [totalExpenses, setTotalExpenses] = useState(0)
@@ -218,24 +219,31 @@ export default function GroupDetailPage() {
   }
 
   const handleDeleteGroup = async () => {
-    if (!confirm("Are you sure you want to delete this group? This action cannot be undone.")) {
-      return
-    }
-
     try {
+      console.log(`Attempting to delete group: ${groupId}`)
+      
       const response = await fetch(`/api/groups/${groupId}`, {
         method: "DELETE",
+        credentials: "include"
       })
+
+      console.log('Delete response status:', response.status)
 
       if (!response.ok) {
         const data = await response.json()
+        console.error('Delete failed:', data)
         throw new Error(data.error || "Failed to delete group")
       }
 
+      const result = await response.json()
+      console.log('Delete result:', result)
+
       toast({
         title: "Group deleted",
-        description: "The group has been successfully deleted.",
+        description: result.message || "The group has been successfully deleted.",
       })
+      
+      // Redirect to groups page
       router.push("/dashboard/groups")
     } catch (err: any) {
       console.error("Error deleting group:", err)
@@ -407,7 +415,8 @@ export default function GroupDetailPage() {
                   <SettingsIcon className="mr-2 h-4 w-4" />
                   Group Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive" onClick={handleDeleteGroup}>
+                <DropdownMenuItem className="text-destructive" onClick={() => setIsDeleteGroupDialogOpen(true)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
                   Delete Group
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -906,6 +915,32 @@ export default function GroupDetailPage() {
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={isDeleteGroupDialogOpen} onOpenChange={setIsDeleteGroupDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Group?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this group? This action cannot be undone and will permanently delete:
+                <ul className="list-disc list-inside mt-2 text-sm">
+                  <li>All group expenses and their splits</li>
+                  <li>All settlement records</li>
+                  <li>All reminder history</li>
+                  <li>All member data</li>
+                </ul>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteGroup}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete Group
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

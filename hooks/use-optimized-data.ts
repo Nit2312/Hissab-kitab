@@ -30,21 +30,16 @@ export function useExpenses() {
     }
   }, [])
 
-  useEffect(() => {
+  const refetch = useCallback(() => {
+    // Clear cache and refetch for real-time updates
+    const { apiCache } = require('@/lib/cache')
+    apiCache.delete('expenses')
     fetchExpenses()
   }, [fetchExpenses])
 
-  const refetch = useCallback(() => {
-    // Clear cache and refetch
-    const cacheKey = 'expenses'
-    if (typeof window !== 'undefined') {
-      // Trigger cache invalidation by adding timestamp
-      fetch(`/api/expenses?t=${Date.now()}`, { credentials: 'include' })
-        .then(response => response.json())
-        .then(data => setExpenses(data))
-        .catch(console.error)
-    }
-  }, [])
+  useEffect(() => {
+    fetchExpenses()
+  }, [fetchExpenses])
 
   return { expenses, loading, error, refetch }
 }

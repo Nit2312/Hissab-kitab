@@ -19,6 +19,7 @@ import {
   SheetTrigger,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { ThemeToggle } from "@/components/theme/theme-toggle"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Bell,
@@ -197,6 +198,9 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
 
       {/* Right Side Actions */}
       <div className="flex items-center gap-2">
+        {/* Theme Toggle */}
+        <ThemeToggle />
+        
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />

@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth/auth';
-import { getFirestoreDB, docToObject, createDocument } from '@/lib/firebase/admin';
-import { COLLECTIONS } from '@/lib/firebase/collections';
-import { Timestamp } from 'firebase-admin/firestore';
+import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUser } from '@/lib/auth/auth'
+import { getFirestoreDB, docToObject, prepareDataForFirestore } from '@/lib/firebase/admin'
+import { updateDocument, deleteDocument, isValidFirestoreId, createDocument } from '@/lib/firebase/helpers'
+import { COLLECTIONS } from '@/lib/firebase/collections'
+import { Timestamp } from 'firebase-admin/firestore'
 
 // Simple cache for expenses (5 minutes TTL)
 const expensesCache = new Map<string, { data: any; timestamp: number; ttl: number }>();
@@ -241,6 +242,24 @@ export async function POST(request: NextRequest) {
 
     // Clear cache for this user
     expensesCache.delete(`expenses_${user.id}`);
+
+    // Broadcast WebSocket event for real-time updates (optional)
+    try {
+      const { broadcastExpenseUpdate } = await import('@/lib/websocket/server');
+      broadcastExpenseUpdate('added', {
+        id: expense.id,
+        description: expense.description,
+        amount: expense.amount,
+        paid_by: expense.paid_by,
+        date: expense.date instanceof Date ? expense.date.toISOString().split('T')[0] : expense.date.split('T')[0],
+        category: normalizeCategory(expense.category),
+        group_id: expense.group_id || null,
+        split_type: expense.split_type,
+      }, user.id);
+    } catch (wsError: any) {
+      // WebSocket server might not be running - that's okay
+      console.log('WebSocket broadcast skipped (server not available):', wsError?.message || wsError);
+    }
 
     return NextResponse.json({
       id: expense.id,

@@ -125,22 +125,71 @@ export async function DELETE(
     }
 
     const db = getFirestoreDB();
-
-    // Delete group members
-    const membersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
-      .where('group_id', '==', resolvedParams.id)
-      .get();
-    
     const batch = db.batch();
-    membersSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-    
-    // Delete group
-    batch.delete(db.collection(COLLECTIONS.GROUPS).doc(resolvedParams.id));
-    
-    await batch.commit();
 
-    return NextResponse.json({ success: true });
+    try {
+      // Delete group members
+      const membersSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
+        .where('group_id', '==', resolvedParams.id)
+        .get();
+      
+      console.log(`Deleting ${membersSnapshot.docs.length} group members`);
+      membersSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+
+      // Get all expenses for this group
+      const expensesSnapshot = await db.collection(COLLECTIONS.EXPENSES)
+        .where('group_id', '==', resolvedParams.id)
+        .get();
+
+      console.log(`Deleting ${expensesSnapshot.docs.length} expenses`);
+      
+      // Delete expense splits for each expense
+      for (const expenseDoc of expensesSnapshot.docs) {
+        const expenseId = expenseDoc.id;
+        
+        // Get splits for this expense
+        const splitsSnapshot = await db.collection(COLLECTIONS.EXPENSE_SPLITS)
+          .where('expense_id', '==', expenseId)
+          .get();
+        
+        console.log(`Deleting ${splitsSnapshot.docs.length} splits for expense ${expenseId}`);
+        splitsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+        
+        // Delete the expense itself
+        batch.delete(expenseDoc.ref);
+      }
+
+      // Delete settlements related to this group
+      const settlementsSnapshot = await db.collection(COLLECTIONS.SETTLEMENTS)
+        .where('group_id', '==', resolvedParams.id)
+        .get();
+      
+      console.log(`Deleting ${settlementsSnapshot.docs.length} settlements`);
+      settlementsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+
+      // Delete reminders related to this group
+      const remindersSnapshot = await db.collection(COLLECTIONS.REMINDERS)
+        .where('group_id', '==', resolvedParams.id)
+        .get();
+      
+      console.log(`Deleting ${remindersSnapshot.docs.length} reminders`);
+      remindersSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+
+      // Finally delete the group
+      batch.delete(db.collection(COLLECTIONS.GROUPS).doc(resolvedParams.id));
+      
+      await batch.commit();
+      
+      console.log(`Successfully deleted group ${resolvedParams.id} and all related data`);
+      return NextResponse.json({ success: true, message: 'Group and all related data deleted successfully' });
+      
+    } catch (batchError: any) {
+      console.error('Error during batch delete:', batchError);
+      return NextResponse.json({ error: 'Failed to delete group data', details: batchError?.message || 'Unknown error' }, { status: 500 });
+    }
+    
   } catch (error: any) {
+    console.error('Error deleting group:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
