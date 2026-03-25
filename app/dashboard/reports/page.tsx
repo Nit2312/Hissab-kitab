@@ -14,8 +14,8 @@ import {
   Download,
   Filter
 } from "lucide-react"
-import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
+import { useToast } from "@/hooks/use-toast"
 
 type ReportData = {
   totalCustomers: number
@@ -39,11 +39,11 @@ type ReportData = {
 const Loading = () => null;
 
 export default function ReportsPage() {
+  const { toast } = useToast()
   const [loading, setLoading] = useState(true)
   const [userType, setUserType] = useState<string>("personal")
   const [reportData, setReportData] = useState<ReportData | null>(null)
   const [selectedPeriod, setSelectedPeriod] = useState<"month" | "quarter" | "year">("month")
-  const searchParams = useSearchParams()
 
   useEffect(() => {
     const fetchReports = async () => {
@@ -112,30 +112,92 @@ export default function ReportsPage() {
     return ((reportData.totalCollected / reportData.totalCredit) * 100).toFixed(1)
   }
 
+  const handleExportReport = () => {
+    if (!reportData) return
+
+    const rows = [
+      ["Metric", "Value"],
+      ["Total Customers", String(reportData.totalCustomers)],
+      ["Total Outstanding", String(reportData.totalOutstanding)],
+      ["Total Collected", String(reportData.totalCollected)],
+      ["Total Credit", String(reportData.totalCredit)],
+      ["Average Transaction", String(reportData.averageTransaction)],
+      ["Collection Rate", `${getCollectionRate()}%`],
+      [],
+      ["Top Customers"],
+      ["Name", "Balance", "Total Credit", "Total Paid"],
+      ...reportData.topCustomers.map((customer) => [
+        customer.name,
+        String(customer.balance),
+        String(customer.totalCredit),
+        String(customer.totalPaid),
+      ]),
+    ]
+
+    const csv = rows
+      .map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\n")
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `reports-${selectedPeriod}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: "Report exported",
+      description: "Your report CSV is ready.",
+    })
+  }
+
+  const periodLabel = {
+    month: "This month",
+    quarter: "This quarter",
+    year: "This year",
+  }[selectedPeriod]
+
   return (
     <Suspense fallback={<Loading />}>
       <div className="space-y-6 pb-20 lg:pb-0">
         {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-foreground">Reports & Analytics</h2>
-            <p className="text-muted-foreground">Track your business performance and insights</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="gap-2">
+        <Card className="glass-card overflow-hidden">
+          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                Business analytics
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Reports & Analytics</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Track your business performance, customer balances, and collection trends for {periodLabel.toLowerCase()}.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="gap-2" onClick={handleExportReport}>
               <Download className="h-4 w-4" />
-              Export Report
+              Export CSV
             </Button>
-            <Button variant="outline" className="gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() =>
+                  toast({
+                    title: "Filters coming soon",
+                    description: "Period tabs are active. Advanced filters will be added next.",
+                  })
+                }
+              >
               <Filter className="h-4 w-4" />
               Filter
             </Button>
-          </div>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Period Selector */}
-        <Tabs value={selectedPeriod} onValueChange={(value: any) => setSelectedPeriod(value)}>
-          <TabsList>
+        <Tabs value={selectedPeriod} onValueChange={(value: any) => setSelectedPeriod(value)} className="space-y-4">
+          <TabsList className="grid w-full grid-cols-3 sm:w-[360px]">
             <TabsTrigger value="month">This Month</TabsTrigger>
             <TabsTrigger value="quarter">This Quarter</TabsTrigger>
             <TabsTrigger value="year">This Year</TabsTrigger>
@@ -148,7 +210,7 @@ export default function ReportsPage() {
           <>
             {/* Key Metrics */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Card>
+              <Card className="rounded-2xl border border-border/60 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
                     Total Customers
@@ -164,7 +226,7 @@ export default function ReportsPage() {
                   </p>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="rounded-2xl border border-border/60 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
                     Total Outstanding
@@ -180,7 +242,7 @@ export default function ReportsPage() {
                   </p>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="rounded-2xl border border-border/60 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
                     Collection Rate
@@ -196,7 +258,7 @@ export default function ReportsPage() {
                   </p>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="rounded-2xl border border-border/60 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
                     Avg Transaction
@@ -216,7 +278,7 @@ export default function ReportsPage() {
 
             <div className="grid gap-6 lg:grid-cols-2">
               {/* Top Customers */}
-              <Card>
+              <Card className="rounded-2xl border border-border/60 shadow-sm">
                 <CardHeader>
                   <CardTitle>Top Customers by Balance</CardTitle>
                   <CardDescription>Customers with highest outstanding amounts</CardDescription>
@@ -245,7 +307,7 @@ export default function ReportsPage() {
               </Card>
 
               {/* Monthly Trends */}
-              <Card>
+              <Card className="rounded-2xl border border-border/60 shadow-sm">
                 <CardHeader>
                   <CardTitle>Monthly Trends</CardTitle>
                   <CardDescription>Credit given vs payments received</CardDescription>
@@ -287,10 +349,10 @@ export default function ReportsPage() {
             </div>
 
             {/* Summary Stats */}
-            <Card>
+            <Card className="rounded-2xl border border-border/60 shadow-sm">
               <CardHeader>
                 <CardTitle>Summary Statistics</CardTitle>
-                <CardDescription>Overall business performance for {selectedPeriod}</CardDescription>
+                <CardDescription>Overall business performance for {periodLabel}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 sm:grid-cols-3">

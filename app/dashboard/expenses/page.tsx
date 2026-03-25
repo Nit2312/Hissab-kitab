@@ -44,6 +44,14 @@ type Expense = {
   paid_by_name?: string
 }
 
+type EditableExpense = {
+  id: string
+  description: string
+  amount: number
+  category: string
+  date: string
+}
+
 function normalizeExpense(expense: any): Expense {
   return {
     id: expense.id,
@@ -71,6 +79,7 @@ export default function ExpensesPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false)
   const [selectedDateForDetails, setSelectedDateForDetails] = useState<Date | null>(null)
+  const [editingExpense, setEditingExpense] = useState<EditableExpense | null>(null)
   const [activeTab, setActiveTab] = useState("list")
   const [error, setError] = useState<string | null>(null)
 
@@ -152,6 +161,24 @@ export default function ExpensesPage() {
     setIsCalendarModalOpen(true)
   }
 
+  const handleEditExpense = (expense: any) => {
+    setEditingExpense({
+      id: expense.id,
+      description: expense.description,
+      amount: expense.amount,
+      category: expense.category,
+      date: expense.date,
+    })
+    setIsAddOpen(true)
+  }
+
+  const handleExpenseSaved = (expense?: any) => {
+    if (!expense) return
+    const normalized = normalizeExpense(expense)
+    setExpenses((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+    setEditingExpense(null)
+  }
+
   const handleDeleteExpense = async (expenseId: string) => {
     try {
       const response = await fetch(`/api/expenses/${expenseId}`, {
@@ -207,7 +234,10 @@ export default function ExpensesPage() {
             <div className="flex items-center gap-2">
               <ThemeToggle />
               {userType === "personal" && (
-                <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-sm">
+                <Button onClick={() => {
+                  setEditingExpense(null)
+                  setIsAddOpen(true)
+                }} className="gap-2 shadow-sm">
                   <Plus className="h-4 w-4" />
                   Add Expense
                 </Button>
@@ -312,8 +342,9 @@ export default function ExpensesPage() {
                       participantCount: expense.participant_count,
                     }}
                     currentUserId={currentUserId}
+                    onEdit={handleEditExpense}
                     onDelete={(expenseId) => {
-                      setExpenses(expenses.filter(e => e.id !== expenseId))
+                      setExpenses((prev) => prev.filter(e => e.id !== expenseId))
                     }}
                   />
                 ))
@@ -326,7 +357,10 @@ export default function ExpensesPage() {
                       : "No expenses found yet."}
                   </p>
                   {userType === "personal" && (
-                    <Button variant="link" onClick={() => setIsAddOpen(true)}>
+                    <Button variant="link" onClick={() => {
+                      setEditingExpense(null)
+                      setIsAddOpen(true)
+                    }}>
                       Add your first expense
                     </Button>
                   )}
@@ -347,13 +381,14 @@ export default function ExpensesPage() {
                   loading={loading}
                 />
               </div>
-              <div>
+              <div className="lg:sticky lg:top-6 lg:self-start">
                 {selectedDateForDetails && (
-                  <ExpenseDetails 
+                  <ExpenseDetails
                     date={selectedDateForDetails}
                     expenses={getExpensesForDate(selectedDateForDetails)}
                     onAddExpense={handleAddExpense}
                     onDeleteExpense={handleDeleteExpense}
+                    onClose={() => setSelectedDateForDetails(null)}
                   />
                 )}
                 {!selectedDateForDetails && (
@@ -374,12 +409,14 @@ export default function ExpensesPage() {
 
         <AddExpenseDialog
           open={isAddOpen}
-          onOpenChange={setIsAddOpen}
-          onExpenseUpdated={(expense) => {
-            if (!expense) return
-            const normalized = normalizeExpense(expense)
-            setExpenses((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+          onOpenChange={(open) => {
+            setIsAddOpen(open)
+            if (!open) {
+              setEditingExpense(null)
+            }
           }}
+          expense={editingExpense || undefined}
+          onExpenseUpdated={handleExpenseSaved}
         />
         <AddExpenseModal 
           open={isCalendarModalOpen} 

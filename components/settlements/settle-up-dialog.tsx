@@ -46,6 +46,16 @@ export function SettleUpDialog({ open, onOpenChange, person, onSettled }: Settle
     date: new Date().toISOString().split("T")[0]
   })
 
+  React.useEffect(() => {
+    if (open) {
+      setFormData({
+        amount: "",
+        method: "upi",
+        date: new Date().toISOString().split("T")[0]
+      })
+    }
+  }, [open, person?.id])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -60,7 +70,7 @@ export function SettleUpDialog({ open, onOpenChange, person, onSettled }: Settle
         : person.amount
 
       // Get current user
-      const userResponse = await fetch("/api/auth/user")
+      const userResponse = await fetch("/api/auth/user", { credentials: "include" })
       if (!userResponse.ok) throw new Error("Not authenticated")
       const user = await userResponse.json()
 
@@ -72,6 +82,7 @@ export function SettleUpDialog({ open, onOpenChange, person, onSettled }: Settle
       const response = await fetch("/api/settlements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           from_user_id: fromUserId,
           to_user_id: toUserId,

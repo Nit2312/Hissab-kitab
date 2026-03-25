@@ -37,35 +37,48 @@ type ReminderHistory = {
 }
 
 export default function RemindersPage() {
-  const [autoReminders, setAutoReminders] = useState(true)
+  const [autoReminders, setAutoReminders] = useState(() => {
+    if (typeof window === "undefined") return true
+    const saved = window.localStorage.getItem("hissab-kitab-auto-reminders")
+    return saved ? saved === "true" : true
+  })
   const [pendingReminders, setPendingReminders] = useState<PendingSettlement[]>([])
   const [reminderHistory, setReminderHistory] = useState<ReminderHistory[]>([])
   const [loading, setLoading] = useState(true)
   const [currentUserId, setCurrentUserId] = useState<string>("")
+  const [sendingId, setSendingId] = useState<string | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {
     fetchReminders()
   }, [])
 
+  useEffect(() => {
+    window.localStorage.setItem("hissab-kitab-auto-reminders", String(autoReminders))
+  }, [autoReminders])
+
   const fetchReminders = async () => {
     setLoading(true)
     try {
       // Get current user
-      const userResponse = await fetch("/api/auth/user")
-      if (!userResponse.ok) return
+      const userResponse = await fetch("/api/auth/user", { credentials: "include" })
+      if (!userResponse.ok) {
+        setLoading(false)
+        return
+      }
       const user = await userResponse.json()
       setCurrentUserId(user.id)
 
       // Only allow personal users to access personal reminders
       if (user.user_type === "business") {
         // Redirect business users to business khata page
+        setLoading(false)
         window.location.href = "/dashboard/khata"
         return
       }
 
       // Fetch pending settlements (only people who owe you money)
-      const pendingResponse = await fetch("/api/settlements/pending")
+      const pendingResponse = await fetch("/api/settlements/pending", { credentials: "include" })
       if (pendingResponse.ok) {
         const pendingData = await pendingResponse.json()
         console.log('🔍 Reminders Page - Raw pending data:', pendingData)
@@ -92,7 +105,7 @@ export default function RemindersPage() {
       }
 
       // Fetch reminder history
-      const remindersResponse = await fetch("/api/reminders")
+      const remindersResponse = await fetch("/api/reminders", { credentials: "include" })
       if (remindersResponse.ok) {
         const remindersData = await remindersResponse.json()
 
@@ -120,10 +133,12 @@ export default function RemindersPage() {
   }
 
   const handleSendReminder = async (reminder: PendingSettlement) => {
+    setSendingId(reminder.id)
     try {
       const response = await fetch("/api/reminders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           to_user_id: reminder.userId || undefined,
           to_name: reminder.name,
@@ -143,8 +158,23 @@ export default function RemindersPage() {
         description: `Reminder sent to ${reminder.name}`,
       })
 
-      // Refresh reminders
-      fetchReminders()
+      const sentAt = new Date().toISOString()
+      setPendingReminders((prev) =>
+        prev.map((item) =>
+          item.id === reminder.id ? { ...item, lastReminder: sentAt } : item
+        )
+      )
+      setReminderHistory((prev) => [
+        {
+          id: `local-${Date.now()}`,
+          name: reminder.name,
+          initials: reminder.initials,
+          amount: reminder.amount,
+          sentDate: sentAt,
+          type: "manual",
+        },
+        ...prev,
+      ])
     } catch (err: any) {
       console.error("Error sending reminder:", err)
       toast({
@@ -152,6 +182,8 @@ export default function RemindersPage() {
         description: err.message || "Failed to send reminder",
         variant: "destructive",
       })
+    } finally {
+      setSendingId(null)
     }
   }
 
@@ -163,7 +195,7 @@ export default function RemindersPage() {
           <h2 className="text-2xl font-bold text-foreground">Reminders</h2>
           <p className="text-muted-foreground">Send payment reminders to your contacts</p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3">
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-3 shadow-sm">
           <Bell className="h-4 w-4 text-muted-foreground" />
           <Label htmlFor="auto-reminders" className="text-sm">
             Auto Reminders
@@ -177,7 +209,7 @@ export default function RemindersPage() {
       </div>
 
       {/* Pending Reminders */}
-      <Card>
+      <Card className="rounded-2xl border border-border/60 shadow-sm">
         <CardHeader>
           <CardTitle>Pending Payments</CardTitle>
           <CardDescription>People who owe you money</CardDescription>
@@ -192,7 +224,7 @@ export default function RemindersPage() {
             </div>
           ) : (
             pendingReminders.map((reminder) => (
-              <Card key={reminder.id}>
+              <Card key={reminder.id} className="rounded-2xl border border-border/60 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-4">
@@ -243,9 +275,14 @@ export default function RemindersPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" onClick={() => handleSendReminder(reminder)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSendReminder(reminder)}
+                        disabled={sendingId === reminder.id}
+                      >
                         <Send className="mr-2 h-4 w-4" />
-                        Send Reminder
+                        {sendingId === reminder.id ? "Sending..." : "Send Reminder"}
                       </Button>
                     </div>
                   </div>
@@ -257,7 +294,7 @@ export default function RemindersPage() {
       </Card>
 
       {/* Reminder Settings */}
-      <Card>
+      <Card className="rounded-2xl border border-border/60 shadow-sm">
         <CardHeader>
           <CardTitle>Reminder Settings</CardTitle>
           <CardDescription>Configure automatic reminder preferences</CardDescription>
@@ -291,7 +328,7 @@ export default function RemindersPage() {
       </Card>
 
       {/* Reminder History */}
-      <Card>
+      <Card className="rounded-2xl border border-border/60 shadow-sm">
         <CardHeader>
           <CardTitle>Reminder History</CardTitle>
           <CardDescription>Recently sent reminders</CardDescription>

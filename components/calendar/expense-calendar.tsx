@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isToday, startOfWeek, endOfWeek, isSameWeek, differenceInDays } from 'date-fns'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isToday, startOfWeek, endOfWeek, differenceInDays } from 'date-fns'
 import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, IndianRupee, TrendingUp, TrendingDown, Target, Sparkles, BarChart3, Wifi, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -66,6 +66,14 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
     const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 })
     return eachDayOfInterval({ start: calendarStart, end: calendarEnd })
   }, [currentMonth])
+
+  const activeDays = useMemo(() => {
+    return calendarDays.filter((day) => {
+      if (!isSameMonth(day, currentMonth)) return false
+      const dateStr = format(day, 'yyyy-MM-dd')
+      return (expensesByDate?.[dateStr]?.length || 0) > 0
+    }).length
+  }, [calendarDays, currentMonth, expensesByDate])
 
   const previousMonth = useCallback(() => setCurrentMonth(subMonths(currentMonth, 1)), [currentMonth])
   const nextMonth = useCallback(() => setCurrentMonth(addMonths(currentMonth, 1)), [currentMonth])
@@ -170,13 +178,13 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
   return (
     <div className="space-y-6">
       {/* Analytics Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <Card className="rounded-2xl border border-blue-200/70 bg-gradient-to-br from-blue-50 to-indigo-100 shadow-sm dark:border-blue-900/50 dark:from-blue-900/20 dark:to-indigo-900/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Monthly Total</p>
-                <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Monthly total</p>
+                <p className="text-2xl font-bold tracking-tight text-blue-900 dark:text-blue-100">
                   ₹{getMonthTotal().toFixed(0)}
                 </p>
               </div>
@@ -187,12 +195,12 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200 dark:border-green-800">
+        <Card className="rounded-2xl border border-green-200/70 bg-gradient-to-br from-green-50 to-emerald-100 shadow-sm dark:border-green-900/50 dark:from-green-900/20 dark:to-emerald-900/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-green-600 dark:text-green-400">Daily Average</p>
-                <p className="text-2xl font-bold text-green-900 dark:text-green-100">
+                <p className="text-sm font-medium text-green-600 dark:text-green-400">Daily average</p>
+                <p className="text-2xl font-bold tracking-tight text-green-900 dark:text-green-100">
                   ₹{getMonthAverage().toFixed(0)}
                 </p>
               </div>
@@ -203,16 +211,16 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-purple-50 to-pink-100 dark:from-purple-900/20 dark:to-pink-900/20 border-purple-200 dark:border-purple-800">
+        <Card className="rounded-2xl border border-purple-200/70 bg-gradient-to-br from-purple-50 to-pink-100 shadow-sm dark:border-purple-900/50 dark:from-purple-900/20 dark:to-pink-900/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Spending Trend</p>
+                <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Spending trend</p>
                 <div className="flex items-center gap-1">
                   {trend === 'up' && <TrendingUp className="h-4 w-4 text-red-500" />}
                   {trend === 'down' && <TrendingDown className="h-4 w-4 text-green-500" />}
                   {trend === 'neutral' && <Target className="h-4 w-4 text-gray-500" />}
-                  <p className="text-lg font-bold text-purple-900 dark:text-purple-100 capitalize">
+                  <p className="text-lg font-bold capitalize text-purple-900 dark:text-purple-100">
                     {trend}
                   </p>
                 </div>
@@ -224,11 +232,11 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-orange-50 to-amber-100 dark:from-orange-900/20 dark:to-amber-900/20 border-orange-200 dark:border-orange-800">
+        <Card className="rounded-2xl border border-orange-200/70 bg-gradient-to-br from-orange-50 to-amber-100 shadow-sm dark:border-orange-900/50 dark:from-orange-900/20 dark:to-amber-900/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-orange-600 dark:text-orange-400">Month Progress</p>
+                <p className="text-sm font-medium text-orange-600 dark:text-orange-400">Month progress</p>
                 <div className="mt-2">
                   <Progress value={progress} className="h-2" />
                   <p className="text-xs text-orange-700 dark:text-orange-300 mt-1">{progress.toFixed(0)}%</p>
@@ -243,23 +251,23 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
       </div>
 
       {/* Main Calendar */}
-      <Card className={cn("w-full backdrop-blur-sm bg-white/80 dark:bg-gray-900/80 border shadow-xl", className)}>
-        <CardHeader className="pb-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+      <Card className={cn("w-full overflow-hidden border shadow-xl backdrop-blur-sm bg-white/80 dark:bg-gray-900/80", className)}>
+        <CardHeader className="border-b pb-5 bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <CalendarIcon className="h-5 w-5 text-primary" />
                 {format(currentMonth, 'MMMM yyyy')}
               </CardTitle>
-              <Badge variant="secondary" className="text-xs bg-white/50">
+              <Badge variant="secondary" className="text-xs bg-white/70">
                 ₹{getMonthTotal().toFixed(0)} total
               </Badge>
               {highestDay && (
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-white/40">
                   Highest: {format(highestDay.date, 'MMM d')} - ₹{highestDay.amount.toFixed(0)}
                 </Badge>
               )}
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-1">
                 {isConnected ? (
                   <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
                     <Wifi className="h-3 w-3" />
@@ -272,13 +280,18 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                   </div>
                 )}
               </div>
+              {loading && (
+                <Badge variant="outline" className="bg-white/60 text-[11px] uppercase tracking-wide">
+                  Loading
+                </Badge>
+              )}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 self-start sm:self-auto">
               <Button
                 variant="outline"
                 size="icon"
                 onClick={previousMonth}
-                className="h-8 w-8 bg-white/50 hover:bg-white"
+                className="h-9 w-9 rounded-xl bg-white/60 hover:bg-white"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -286,19 +299,19 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                 variant="outline"
                 size="icon"
                 onClick={nextMonth}
-                className="h-8 w-8 bg-white/50 hover:bg-white"
+                className="h-9 w-9 rounded-xl bg-white/60 hover:bg-white"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-4">
-          <div className="grid grid-cols-7 gap-1 mb-3">
+        <CardContent className="p-4 sm:p-5">
+          <div className="mb-3 grid grid-cols-7 gap-1">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
               <div
                 key={day}
-                className="text-center text-xs font-semibold text-muted-foreground p-2 bg-gradient-to-b from-muted/50 to-muted/30 rounded-lg"
+                className="rounded-xl bg-muted/60 p-2 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
               >
                 {day}
               </div>
@@ -318,11 +331,10 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                 <div
                   key={`${day.toString()}-${index}`}
                   className={cn(
-                    "h-16 p-1 flex flex-col items-center justify-center relative transition-all duration-300 cursor-pointer",
-                    "hover:scale-105 hover:shadow-lg hover:z-10",
-                    "border border-transparent hover:border-blue-200 dark:hover:border-blue-800 rounded-lg",
+                    "group relative flex min-h-20 cursor-pointer flex-col items-center justify-center rounded-xl border border-transparent p-2 transition-all duration-300",
+                    "hover:z-10 hover:scale-[1.02] hover:border-blue-200 hover:shadow-lg dark:hover:border-blue-800",
                     !isCurrentMonth && "text-muted-foreground opacity-30",
-                    isCurrentDay && "bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 border-2 border-blue-400 dark:border-blue-600 shadow-lg",
+                    isCurrentDay && "border-blue-400 bg-gradient-to-br from-blue-100 to-purple-100 shadow-lg dark:border-blue-600 dark:from-blue-900/30 dark:to-purple-900/30",
                     hasExpenses && isCurrentMonth && cn(
                       "bg-gradient-to-br border",
                       intensity === 'low' && "from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200 dark:border-green-800",
@@ -340,7 +352,7 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                     }
                   }}
                 >
-                  <div className="flex flex-col items-center gap-1 w-full relative">
+                  <div className="relative flex w-full flex-col items-center gap-1">
                     <span className={cn(
                       "text-sm font-medium",
                       isCurrentDay && "text-blue-600 dark:text-blue-400 font-bold text-base"
@@ -350,7 +362,7 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                     
                     {hasExpenses && isCurrentMonth && (
                       <div className="flex flex-col items-center gap-0.5 w-full px-1">
-                        <div className="flex items-center gap-1 w-full justify-between">
+                        <div className="flex w-full items-center justify-between gap-1">
                           <Badge 
                             variant="secondary" 
                             className={cn(
@@ -367,7 +379,7 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-4 w-4 p-0 hover:bg-red-100 dark:hover:bg-red-900/20 text-red-500 hover:text-red-700 dark:hover:text-red-300 rounded opacity-0 group-hover:opacity-100 transition-all duration-200"
+                              className="h-4 w-4 rounded p-0 text-red-500 opacity-0 transition-all duration-200 hover:bg-red-100 hover:text-red-700 group-hover:opacity-100 dark:hover:bg-red-900/20 dark:hover:text-red-300"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 // Get first expense for this date to delete
@@ -400,7 +412,7 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="absolute -top-1 -right-1 h-5 w-5 p-0 bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 rounded-full shadow-lg opacity-0 hover:opacity-100 transition-all duration-200 hover:scale-110"
+                        className="absolute -right-1 -top-1 h-5 w-5 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 p-0 text-white opacity-0 shadow-lg transition-all duration-200 hover:scale-110 hover:from-blue-600 hover:to-purple-600 group-hover:opacity-100"
                         onClick={(e) => handleAddExpense(e, day)}
                       >
                         <Plus className="h-3 w-3" />
@@ -416,8 +428,8 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
             })}
           </div>
           
-          <div className="mt-6 pt-4 border-t bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 -mx-4 px-4 -mb-4 pb-4 rounded-b-lg">
-            <div className="flex items-center justify-between text-xs">
+          <div className="mt-6 -mx-4 rounded-b-lg border-t bg-gradient-to-r from-blue-50 to-purple-50 px-4 pb-4 pt-4 dark:from-blue-900/20 dark:to-purple-900/20 sm:-mx-5 sm:px-5">
+            <div className="flex flex-col gap-3 text-xs sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-400 rounded-full" />
@@ -432,8 +444,8 @@ export function ExpenseCalendar({ onDateClick, onAddExpense, onDeleteExpense, cl
                   <span className="text-muted-foreground">High spending</span>
                 </div>
               </div>
-              <div className="text-muted-foreground font-medium">
-                {expenses?.length || 0} expenses • {calendarDays.filter(d => isSameMonth(d, currentMonth) && getExpenseCountForDate(d) > 0).length} active days
+              <div className="font-medium text-muted-foreground">
+                {expenses?.length || 0} expenses • {activeDays} active days
               </div>
             </div>
           </div>

@@ -490,7 +490,10 @@ export default function GroupDetailPage() {
                   <UserPlus className="mr-2 h-4 w-4" />
                   Add Members
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem onClick={() => toast({
+                  title: "Group settings",
+                  description: "This panel is coming soon. For now you can manage members and expenses here.",
+                })}>
                   <SettingsIcon className="mr-2 h-4 w-4" />
                   Group Settings
                 </DropdownMenuItem>
@@ -506,7 +509,7 @@ export default function GroupDetailPage() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card className="rounded-2xl border border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Expenses
@@ -530,7 +533,7 @@ export default function GroupDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               You Paid
@@ -554,7 +557,7 @@ export default function GroupDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Your Share
@@ -572,7 +575,7 @@ export default function GroupDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Your Balance
@@ -610,7 +613,7 @@ export default function GroupDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="expenses" className="space-y-4">
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-3 sm:w-[360px]">
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
           <TabsTrigger value="members">Members</TabsTrigger>
           <TabsTrigger value="balances">Balances</TabsTrigger>
@@ -619,7 +622,7 @@ export default function GroupDetailPage() {
         {/* Expenses Tab */}
         <TabsContent value="expenses" className="space-y-4">
           {expenses.length === 0 ? (
-            <Card>
+            <Card className="rounded-2xl border border-border/60 shadow-sm">
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Receipt className="h-12 w-12 text-muted-foreground/50" />
                 <p className="mt-4 text-muted-foreground">No expenses yet</p>
@@ -718,7 +721,7 @@ export default function GroupDetailPage() {
 
         {/* Members Tab */}
         <TabsContent value="members" className="space-y-4">
-          <Card>
+                <Card className="rounded-2xl border border-border/60 shadow-sm">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -740,7 +743,7 @@ export default function GroupDetailPage() {
                 const canLeave = isCurrentUser && !isMemberCreator
 
                 return (
-                  <div key={member.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div key={member.id} className="flex items-center justify-between rounded-2xl border border-border/60 p-3 shadow-sm">
                     <div className="flex items-center gap-3">
                       <Avatar>
                         <AvatarFallback className="bg-primary/10 text-primary">
@@ -811,14 +814,14 @@ export default function GroupDetailPage() {
 
         {/* Balances Tab */}
         <TabsContent value="balances" className="space-y-4">
-          <Card>
+          <Card className="rounded-2xl border border-border/60 shadow-sm">
             <CardHeader>
               <CardTitle>Your Balances</CardTitle>
               <CardDescription>Who you owe and who owes you</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {!balancesData ? (
-                <div className="rounded-lg border border-border bg-muted/50 p-6 text-center">
+                <div className="rounded-2xl border border-border/60 bg-muted/50 p-6 text-center shadow-sm">
                   <p className="text-sm text-muted-foreground">Unable to calculate balances</p>
                 </div>
               ) : (() => {
@@ -946,7 +949,12 @@ export default function GroupDetailPage() {
         />
         <AddExpenseDialog 
           open={isEditExpenseOpen} 
-          onOpenChange={setIsEditExpenseOpen}
+          onOpenChange={(open) => {
+            setIsEditExpenseOpen(open)
+            if (!open) {
+              setSelectedExpense(null)
+            }
+          }}
           defaultGroupId={groupId}
           expense={selectedExpense ? {
             id: selectedExpense.id,
@@ -955,11 +963,11 @@ export default function GroupDetailPage() {
             category: selectedExpense.category,
             date: selectedExpense.date
           } : undefined}
-          onExpenseUpdated={(expense) => {
-            setIsEditExpenseOpen(false)
-            setSelectedExpense(null)
-            handleExpenseUpdated(expense)
-          }}
+            onExpenseUpdated={(expense) => {
+              setIsEditExpenseOpen(false)
+              setSelectedExpense(null)
+              handleExpenseUpdated(expense)
+            }}
         />
         <AddMembersDialog 
           open={isAddMembersOpen} 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -45,97 +45,68 @@ export default function SettlementsPage() {
   const [youOweList, setYouOweList] = useState<PendingSettlement[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
-      try {
-        // Get current user
-        const userResponse = await fetch("/api/auth/user")
-        if (!userResponse.ok) throw new Error("Not authenticated")
-        const user = await userResponse.json()
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const userResponse = await fetch("/api/auth/user", { credentials: "include" })
+      if (!userResponse.ok) throw new Error("Not authenticated")
+      const user = await userResponse.json()
 
-        // Only allow personal users to access personal settlements
-        if (user.user_type === "business") {
-          // Redirect business users to business khata page
-          window.location.href = "/dashboard/khata"
-          return
-        }
-
-        // Make all API calls in parallel for faster loading
-        const [settlementsResponse, pendingResponse] = await Promise.all([
-          fetch("/api/settlements"),
-          fetch("/api/settlements/pending")
-        ])
-
-        // Process settlements history
-        if (settlementsResponse.ok) {
-          const settlements = await settlementsResponse.json()
-
-          // Use user data directly from settlements without additional API calls
-          const history: SettlementHistory[] = settlements.map((s: any) => {
-            const isFromUser = s.from_user_id === user.id
-            const otherUserId = isFromUser ? s.to_user_id : s.from_user_id
-
-            // Use the name from settlement data or fallback
-            const otherUserName = s.from_user_id === user.id 
-              ? s.to_user_name || s.to_user_id 
-              : s.from_user_name || s.from_user_id
-
-            const initials = otherUserName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
-
-            return {
-              id: s.id,
-              name: otherUserName,
-              initials,
-              amount: Number(s.amount),
-              type: isFromUser ? "paid" : "received",
-              date: s.settled_at || s.created_at,
-              method: s.payment_method || "other",
-            }
-          })
-
-          setSettlementHistory(history)
-        } else {
-          console.error("Failed to fetch settlements history")
-          setSettlementHistory([])
-        }
-
-        // Process pending settlements - only show money you owe
-        if (pendingResponse.ok) {
-          const pendingData = await pendingResponse.json()
-          console.log('🔍 Settlements Page - Raw pending data:', pendingData)
-          console.log('🔍 Settlements Page - Current user ID:', user.id)
-          
-          // Log each settlement for debugging
-          pendingData.forEach((settlement: any, index: number) => {
-            console.log(`🔍 Settlements Page - Settlement ${index}:`, {
-              name: settlement.name,
-              amount: settlement.amount,
-              type: settlement.type
-            })
-          });
-          
-          // Only show people you owe money to
-          const youOweData = pendingData.filter((s: PendingSettlement) => s.type === "you_owe")
-          console.log('🔍 Settlements Page - Filtered you_owe data:', youOweData)
-          console.log('🔍 Settlements Page - Final you_owe count:', youOweData.length)
-          setYouOweList(youOweData)
-        } else {
-          console.error("Failed to fetch pending settlements")
-          setYouOweList([])
-        }
-      } catch (err) {
-        console.error("Error fetching settlements:", err)
-        // Set empty arrays on error to prevent infinite loading
-        setSettlementHistory([])
-        setYouOweList([])
-      } finally {
-        setLoading(false)
+      if (user.user_type === "business") {
+        window.location.href = "/dashboard/khata"
+        return
       }
-    }
 
-    fetchData()
-  }, [isSettleOpen])
+      const [settlementsResponse, pendingResponse] = await Promise.all([
+        fetch("/api/settlements", { credentials: "include" }),
+        fetch("/api/settlements/pending", { credentials: "include" })
+      ])
+
+      if (settlementsResponse.ok) {
+        const settlements = await settlementsResponse.json()
+        const history: SettlementHistory[] = settlements.map((s: any) => {
+          const isFromUser = s.from_user_id === user.id
+          const otherUserName = s.from_user_id === user.id
+            ? s.to_user_name || s.to_user_id
+            : s.from_user_name || s.from_user_id
+
+          const initials = otherUserName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+
+          return {
+            id: s.id,
+            name: otherUserName,
+            initials,
+            amount: Number(s.amount),
+            type: isFromUser ? "paid" : "received",
+            date: s.settled_at || s.created_at,
+            method: s.payment_method || "other",
+          }
+        })
+
+        setSettlementHistory(history)
+      } else {
+        setSettlementHistory([])
+      }
+
+      if (pendingResponse.ok) {
+        const pendingData = await pendingResponse.json()
+        const youOweData = pendingData.filter((s: PendingSettlement) => s.type === "you_owe")
+        setYouOweList(youOweData)
+      } else {
+        setYouOweList([])
+      }
+    } catch (err) {
+      console.error("Error fetching settlements:", err)
+      setSettlementHistory([])
+      setYouOweList([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchData()
+  }, [fetchData])
 
   const handleSettle = (person: PendingSettlement) => {
     setSelectedPerson(person)
@@ -151,8 +122,7 @@ export default function SettlementsPage() {
   }
 
   const handleSettled = () => {
-    // Refresh settlements data when a settlement is recorded
-    window.location.reload()
+    void fetchData()
   }
 
   return (
@@ -165,7 +135,7 @@ export default function SettlementsPage() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card>
+        <Card className="rounded-2xl border border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total You Owe
@@ -188,7 +158,7 @@ export default function SettlementsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="rounded-2xl border border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Paid
@@ -211,7 +181,7 @@ export default function SettlementsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="sm:col-span-2 lg:col-span-1">
+        <Card className="rounded-2xl border border-border/60 shadow-sm sm:col-span-2 lg:col-span-1">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Outstanding
@@ -238,7 +208,7 @@ export default function SettlementsPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="you-owe" className="space-y-4">
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-2 sm:w-[260px]">
           <TabsTrigger value="you-owe">You Owe</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -278,7 +248,7 @@ export default function SettlementsPage() {
             </div>
           ) : youOweList.length > 0 ? (
             youOweList.map((settlement) => (
-              <Card key={settlement.id}>
+              <Card key={settlement.id} className="rounded-2xl border border-border/60 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-4">
@@ -372,7 +342,7 @@ export default function SettlementsPage() {
             </div>
           ) : settlementHistory.length > 0 ? (
             settlementHistory.map((settlement) => (
-            <Card key={settlement.id}>
+            <Card key={settlement.id} className="rounded-2xl border border-border/60 shadow-sm">
               <CardContent className="flex items-center justify-between p-4">
                 <div className="flex items-center gap-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">

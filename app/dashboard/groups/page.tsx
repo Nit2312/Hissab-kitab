@@ -114,10 +114,20 @@ export default function GroupsPage() {
         }
       })
 
-      setGroups(groupsWithDetails)
+      setGroups((prev) => {
+        const fetchedIds = new Set(groupsWithDetails.map((group: any) => group.id))
+        const mergedFetched = groupsWithDetails.map((group: any) => {
+          const existing = prev.find((item) => item.id === group.id)
+          return existing ? { ...existing, ...group } : group
+        })
+        const optimisticGroups = prev.filter((group) => !fetchedIds.has(group.id))
+        return [...mergedFetched, ...optimisticGroups]
+      })
     } catch (err) {
       console.error("Error fetching groups:", err)
-      setGroups([])
+      if (!silent) {
+        setGroups([])
+      }
     } finally {
       if (!silent) {
         setLoading(false)
