@@ -15,7 +15,7 @@ interface AddExpenseModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   selectedDate: Date | null
-  onExpenseAdded?: () => void
+  onExpenseAdded?: (expense?: any) => void
 }
 
 const CATEGORIES = [
@@ -76,6 +76,7 @@ export function AddExpenseModal({
       })
 
       if (response.ok) {
+        const createdExpense = await response.json()
         toast({
           title: "Success!",
           description: `Expense added for ${format(selectedDate!, 'MMM d, yyyy')}`
@@ -90,7 +91,7 @@ export function AddExpenseModal({
         })
         
         onOpenChange(false)
-        onExpenseAdded?.()
+        onExpenseAdded?.(createdExpense)
       } else {
         const error = await response.json()
         toast({

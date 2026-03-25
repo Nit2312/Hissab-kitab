@@ -37,6 +37,17 @@ type Customer = {
   created_at?: string
 }
 
+function normalizeCustomer(customer: any): Customer {
+  return {
+    id: customer.id,
+    name: customer.name,
+    phone: customer.phone || "",
+    email: customer.email || null,
+    address: customer.address || null,
+    created_at: customer.created_at,
+  }
+}
+
 const Loading = () => null;
 
 export default function CustomersPage() {
@@ -73,7 +84,7 @@ export default function CustomersPage() {
       }
     };
     fetchCustomers();
-  }, [isAddOpen]);
+  }, []);
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -202,7 +213,15 @@ export default function CustomersPage() {
           </div>
         )}
 
-        <AddCustomerDialog open={isAddOpen} onOpenChange={setIsAddOpen} />
+        <AddCustomerDialog
+          open={isAddOpen}
+          onOpenChange={setIsAddOpen}
+          onCustomerAdded={(customer) => {
+            if (!customer) return
+            const normalized = normalizeCustomer(customer)
+            setCustomers((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+          }}
+        />
       </div>
     </Suspense>
   )

@@ -68,6 +68,7 @@ export function CreateGroupDialog({ open, onOpenChange, onCreated }: CreateGroup
       const response = await fetch("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           name: formData.name.trim(),
           type: formData.type,

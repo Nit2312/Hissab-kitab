@@ -25,7 +25,7 @@ interface EditMemberDialogProps {
     phone: string | null
     is_registered: boolean
   }
-  onMemberUpdated?: () => void
+  onMemberUpdated?: (member?: any) => void
 }
 
 export function EditMemberDialog({ 
@@ -59,6 +59,7 @@ export function EditMemberDialog({
       const response = await fetch(`/api/groups/members/${member.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           name: formData.name,
           email: formData.email || null,
@@ -71,15 +72,15 @@ export function EditMemberDialog({
         throw new Error(data.error || "Failed to update member")
       }
 
+      const updatedMember = await response.json()
+
       toast({
         title: "Member updated",
         description: "Member information has been successfully updated.",
       })
 
       onOpenChange(false)
-      if (onMemberUpdated) {
-        onMemberUpdated()
-      }
+      onMemberUpdated?.(updatedMember)
     } catch (err: any) {
       console.error("Error updating member:", err)
       toast({

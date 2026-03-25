@@ -118,11 +118,14 @@ export default function GroupDetailPage() {
   const [balancesData, setBalancesData] = useState<GroupBalancesResponse | null>(null)
 
   useEffect(() => {
-    fetchGroupDetails()
+    void fetchGroupDetails()
   }, [groupId])
 
-  const fetchGroupDetails = async () => {
-    setLoading(true)
+  const fetchGroupDetails = async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options
+    if (!silent) {
+      setLoading(true)
+    }
     try {
       // Get current user and fetch all data in parallel
       const [userResponse, groupsResponse, membersResponse, expensesResponse] = await Promise.all([
@@ -214,7 +217,9 @@ export default function GroupDetailPage() {
         variant: "destructive",
       })
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -316,8 +321,8 @@ export default function GroupDetailPage() {
       // Immediately remove from local state for instant UI update
       setMembers(prev => prev.filter(m => m.id !== memberToDelete.id))
       
-      // Then refresh all data to ensure consistency
-      await fetchGroupDetails()
+      // Refresh balances/details in the background to ensure consistency
+      void fetchGroupDetails({ silent: true })
     } catch (err: any) {
       console.error("Error deleting member:", err)
       toast({
@@ -375,6 +380,80 @@ export default function GroupDetailPage() {
         variant: "destructive",
       })
     }
+  }
+
+  const handleExpenseAdded = (expense?: any) => {
+    if (!expense) return
+
+    const normalized = {
+      id: expense.id,
+      description: expense.description,
+      amount: Number(expense.amount || 0),
+      category: expense.category || "Others",
+      paid_by: expense.paid_by || currentUserId,
+      date: expense.date || new Date().toISOString().split("T")[0],
+      created_at: expense.created_at || new Date().toISOString(),
+      paid_by_name: expense.paid_by_name || "You",
+    }
+
+    setExpenses((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+    setTotalExpenses((prev) => prev + normalized.amount)
+    setYouPaid((prev) => prev + (normalized.paid_by === currentUserId ? normalized.amount : 0))
+    void fetchGroupDetails({ silent: true })
+  }
+
+  const handleExpenseUpdated = (expense?: any) => {
+    if (!expense) return
+
+    const normalized = {
+      id: expense.id,
+      description: expense.description,
+      amount: Number(expense.amount || 0),
+      category: expense.category || "Others",
+      paid_by: expense.paid_by || currentUserId,
+      date: expense.date || new Date().toISOString().split("T")[0],
+      created_at: expense.created_at || new Date().toISOString(),
+      paid_by_name: expense.paid_by_name || "You",
+    }
+
+    setExpenses((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+    void fetchGroupDetails({ silent: true })
+  }
+
+  const handleMembersAdded = (newMembers?: any[]) => {
+    if (!newMembers || newMembers.length === 0) return
+
+    const normalizedMembers = newMembers.map((member) => ({
+      id: member.id,
+      user_id: member.user_id || null,
+      name: member.name,
+      email: member.email || null,
+      phone: member.phone || null,
+      is_registered: !!member.user_id,
+    }))
+
+    setMembers((prev) => [...normalizedMembers, ...prev.filter((m) => !normalizedMembers.some((next) => next.id === m.id))])
+    void fetchGroupDetails({ silent: true })
+  }
+
+  const handleMemberUpdated = (updatedMember?: any) => {
+    if (!updatedMember) return
+
+    setMembers((prev) =>
+      prev.map((member) =>
+        member.id === updatedMember.id
+          ? {
+              ...member,
+              name: updatedMember.name,
+              email: updatedMember.email,
+              phone: updatedMember.phone,
+              user_id: updatedMember.user_id,
+              is_registered: updatedMember.is_registered,
+            }
+          : member
+      )
+    )
+    void fetchGroupDetails({ silent: true })
   }
 
   return (
@@ -611,7 +690,8 @@ export default function GroupDetailPage() {
                                     title: "Expense deleted",
                                     description: "The expense has been successfully deleted.",
                                   })
-                                  fetchGroupDetails()
+                                  setExpenses(prev => prev.filter(item => item.id !== expense.id))
+                                  void fetchGroupDetails({ silent: true })
                                 } catch (err: any) {
                                   console.error("Error deleting expense:", err)
                                   toast({
@@ -862,7 +942,7 @@ export default function GroupDetailPage() {
           open={isAddExpenseOpen} 
           onOpenChange={setIsAddExpenseOpen}
           defaultGroupId={groupId}
-          onExpenseUpdated={fetchGroupDetails}
+          onExpenseUpdated={handleExpenseAdded}
         />
         <AddExpenseDialog 
           open={isEditExpenseOpen} 
@@ -875,27 +955,27 @@ export default function GroupDetailPage() {
             category: selectedExpense.category,
             date: selectedExpense.date
           } : undefined}
-          onExpenseUpdated={() => {
+          onExpenseUpdated={(expense) => {
             setIsEditExpenseOpen(false)
             setSelectedExpense(null)
-            fetchGroupDetails()
+            handleExpenseUpdated(expense)
           }}
         />
         <AddMembersDialog 
           open={isAddMembersOpen} 
           onOpenChange={setIsAddMembersOpen}
           groupId={groupId}
-          onMembersAdded={fetchGroupDetails}
+          onMembersAdded={handleMembersAdded}
         />
         {selectedMember && (
           <EditMemberDialog
             open={isEditMemberOpen}
             onOpenChange={setIsEditMemberOpen}
             member={selectedMember}
-            onMemberUpdated={() => {
+            onMemberUpdated={(updatedMember) => {
               setIsEditMemberOpen(false)
               setSelectedMember(null)
-              fetchGroupDetails()
+              handleMemberUpdated(updatedMember)
             }}
           />
         )}

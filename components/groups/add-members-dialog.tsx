@@ -19,7 +19,7 @@ interface AddMembersDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   groupId: string
-  onMembersAdded?: () => void
+  onMembersAdded?: (members?: any[]) => void
 }
 
 export function AddMembersDialog({ 
@@ -119,6 +119,7 @@ export function AddMembersDialog({
       const response = await fetch("/api/groups/members", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           group_id: groupId,
           members: membersToAdd,
@@ -143,9 +144,7 @@ export function AddMembersDialog({
       onOpenChange(false)
       
       // Callback to refresh the group details
-      if (onMembersAdded) {
-        onMembersAdded()
-      }
+      onMembersAdded?.(result.members)
     } catch (err: any) {
       console.error("Error adding members:", err)
       toast({

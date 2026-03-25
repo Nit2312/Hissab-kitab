@@ -40,6 +40,8 @@ import {
   Loader2
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { signOut } from "firebase/auth"
+import { getFirebaseAuth } from "@/lib/firebase/client"
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -64,7 +66,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await fetch("/api/profile")
+        const response = await fetch("/api/profile", { credentials: "include" })
         if (!response.ok) return
         const profileData = await response.json()
 
@@ -89,6 +91,7 @@ export default function SettingsPage() {
       const response = await fetch("/api/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           full_name: profile.name,
           phone: profile.phone.trim() || null,
@@ -99,6 +102,14 @@ export default function SettingsPage() {
         const data = await response.json()
         throw new Error(data.error || "Failed to update profile")
       }
+
+      const updatedProfile = await response.json()
+      setProfile((prev) => ({
+        ...prev,
+        name: updatedProfile.full_name || "",
+        email: updatedProfile.email || "",
+        phone: updatedProfile.phone || "",
+      }))
 
       toast({
         title: "Profile updated",
@@ -121,6 +132,7 @@ export default function SettingsPage() {
     try {
       const response = await fetch("/api/auth/delete-account", {
         method: "DELETE",
+        credentials: "include",
       })
 
       if (!response.ok) {
@@ -128,8 +140,12 @@ export default function SettingsPage() {
         throw new Error(data.error || "Failed to delete account")
       }
 
-      // Sign out
-      await fetch("/api/auth/signout", { method: "POST" })
+      try {
+        await signOut(getFirebaseAuth())
+      } catch (error) {
+        console.error("Error signing out Firebase user:", error)
+      }
+      await fetch("/api/auth/signout", { method: "POST", credentials: "include" })
 
       toast({
         title: "Account deleted",
@@ -137,7 +153,7 @@ export default function SettingsPage() {
       })
 
       // Redirect to home page
-      window.location.href = "/"
+      router.replace("/")
     } catch (err: any) {
       console.error("Error deleting account:", err)
       toast({

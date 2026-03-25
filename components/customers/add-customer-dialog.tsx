@@ -20,9 +20,10 @@ import { useToast } from "@/hooks/use-toast"
 interface AddCustomerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCustomerAdded?: (customer?: any) => void
 }
 
-export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps) {
+export function AddCustomerDialog({ open, onOpenChange, onCustomerAdded }: AddCustomerDialogProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
@@ -39,6 +40,7 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
       const response = await fetch("/api/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           name: formData.name,
           phone: formData.phone,
@@ -52,6 +54,7 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
         throw new Error(data.error || "Failed to add customer");
       }
 
+      const createdCustomer = await response.json();
       onOpenChange(false);
       setFormData({
         name: "",
@@ -63,7 +66,7 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
         title: "Customer added",
         description: "Customer has been successfully added to your khata.",
       })
-      window.location.reload();
+      onCustomerAdded?.(createdCustomer);
     } catch (err: any) {
       console.error(err);
       toast({

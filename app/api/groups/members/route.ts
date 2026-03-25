@@ -220,9 +220,11 @@ export async function POST(request: NextRequest) {
       success: true,
       members: createdMembers.map(m => ({
         id: m!.id,
+        user_id: m!.user_id || null,
         name: m!.name,
         email: m!.email || null,
         phone: m!.phone || null,
+        is_registered: m!.is_registered || false,
       })),
     });
   } catch (error: any) {

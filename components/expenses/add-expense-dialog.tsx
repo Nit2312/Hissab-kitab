@@ -39,7 +39,7 @@ interface AddExpenseDialogProps {
     category: string
     date: string
   }
-  onExpenseUpdated?: () => void
+  onExpenseUpdated?: (expense?: any) => void
 }
 
 export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, onExpenseUpdated }: AddExpenseDialogProps) {
@@ -124,6 +124,7 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
         const response = await fetch(`/api/expenses/${expense.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             description: formData.description,
             amount: parseFloat(formData.amount),
@@ -137,19 +138,22 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
           throw new Error(data.error || "Failed to update expense")
         }
 
+        const updatedExpense = await response.json()
+
         onOpenChange(false)
         toast({
           title: "Expense updated",
           description: "Your expense has been successfully updated.",
         })
         if (onExpenseUpdated) {
-          onExpenseUpdated()
+          onExpenseUpdated(updatedExpense)
         }
       } else {
         // Create new expense
         const response = await fetch("/api/expenses", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             description: formData.description,
             amount: parseFloat(formData.amount),
@@ -165,6 +169,8 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
           throw new Error(data.error || "Failed to add expense")
         }
 
+        const createdExpense = await response.json()
+
         onOpenChange(false)
         setFormData({
           description: "",
@@ -177,7 +183,7 @@ export function AddExpenseDialog({ open, onOpenChange, defaultGroupId, expense, 
           description: "Your expense has been successfully added.",
         })
         if (onExpenseUpdated) {
-          onExpenseUpdated()
+          onExpenseUpdated(createdExpense)
         }
       }
     } catch (err: any) {

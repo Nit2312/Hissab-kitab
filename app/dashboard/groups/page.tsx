@@ -7,9 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Plus, Search } from "lucide-react"
 import { GroupCard } from "@/components/groups/group-card"
 import { CreateGroupDialog } from "@/components/groups/create-group-dialog"
-import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
-import { formatDistanceToNow } from "date-fns"
 
 type Group = {
   id: string
@@ -26,14 +24,14 @@ type Group = {
 export default function GroupsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
-  const [mounted, setMounted] = useState(false)
-  const searchParams = useSearchParams()
 
-  const fetchGroups = async () => {
-    setLoading(true)
+  const fetchGroups = async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options
+    if (!silent) {
+      setLoading(true)
+    }
     try {
       // Get current user
       const userResponse = await fetch("/api/auth/user", { credentials: "include" })
@@ -121,32 +119,14 @@ export default function GroupsPage() {
       console.error("Error fetching groups:", err)
       setGroups([])
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
   useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  useEffect(() => {
-    fetchGroups()
-  }, [isCreateOpen, refreshKey])
-
-  // Check if we're returning from a group page (possible deletion/edit)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // Page became visible, possibly returning from group details
-        setRefreshKey(prev => prev + 1)
-      }
-    }
-
-    // Also check on mount in case we navigated here
-    setRefreshKey(prev => prev + 1)
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+    void fetchGroups()
   }, [])
 
   const filteredGroups = groups.filter(group =>
@@ -221,8 +201,23 @@ export default function GroupsPage() {
         <CreateGroupDialog
           open={isCreateOpen}
           onOpenChange={setIsCreateOpen}
-          onCreated={() => {
-            fetchGroups()
+          onCreated={(createdGroup) => {
+            if (!createdGroup) return
+            setGroups((prev) => [
+              {
+                id: createdGroup.id,
+                name: createdGroup.name,
+                type: createdGroup.type,
+                created_at: createdGroup.created_at || new Date().toISOString(),
+                members: [],
+                totalExpenses: 0,
+                yourBalance: 0,
+                balanceType: "settled",
+                lastActivity: null,
+              },
+              ...prev.filter((group) => group.id !== createdGroup.id),
+            ])
+            void fetchGroups({ silent: true })
           }}
         />
       </div>

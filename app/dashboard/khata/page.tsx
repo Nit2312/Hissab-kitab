@@ -32,11 +32,24 @@ type Customer = {
 
 type Transaction = {
   id: string
+  customer_id?: string
   customer: string
   type: "credit" | "payment"
   amount: number
   date: string
   description: string | null
+}
+
+function normalizeTransaction(transaction: any): Transaction {
+  return {
+    id: transaction.id,
+    customer_id: transaction.customer_id,
+    customer: transaction.customer || "Unknown",
+    type: transaction.type,
+    amount: Number(transaction.amount || 0),
+    date: transaction.date,
+    description: transaction.description || null,
+  }
 }
 
 const Loading = () => null;
@@ -120,12 +133,43 @@ export default function KhataPage() {
     }
 
     fetchKhataData()
-  }, [isAddOpen])
+  }, [])
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (customer.phone && customer.phone.includes(searchQuery))
   )
+
+  const handleTransactionAdded = (transaction?: any) => {
+    if (!transaction) return
+
+    const normalized = normalizeTransaction(transaction)
+    const signedAmount = normalized.type === "credit" ? normalized.amount : -normalized.amount
+
+    setRecentTransactions((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+    setTotalOutstanding((prev) => Math.max(0, prev + signedAmount))
+
+    if (normalized.type === "credit") {
+      setTotalCreditToday((prev) => prev + normalized.amount)
+    } else {
+      setTotalCollectedToday((prev) => prev + normalized.amount)
+    }
+
+    if (normalized.customer_id) {
+      setCustomers((prev) =>
+        prev.map((customer) => {
+          if (customer.id !== normalized.customer_id) return customer
+
+          const nextBalance = Math.max(0, customer.balance + signedAmount)
+          return {
+            ...customer,
+            balance: nextBalance,
+            type: nextBalance > 0 ? "credit" : "settled",
+          }
+        })
+      )
+    }
+  }
 
   return (
     <Suspense fallback={<Loading />}>
@@ -327,7 +371,11 @@ export default function KhataPage() {
           </TabsContent>
         </Tabs>
 
-        <AddTransactionDialog open={isAddOpen} onOpenChange={setIsAddOpen} />
+        <AddTransactionDialog
+          open={isAddOpen}
+          onOpenChange={setIsAddOpen}
+          onTransactionAdded={handleTransactionAdded}
+        />
       </div>
     </Suspense>
   )

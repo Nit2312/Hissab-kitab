@@ -36,6 +36,19 @@ function normalizeCategory(category: unknown) {
   return category;
 }
 
+async function fetchDocsByIds<T = any>(db: any, collection: string, ids: string[]) {
+  const results: T[] = [];
+  for (let i = 0; i < ids.length; i += 10) {
+    const batch = ids.slice(i, i + 10);
+    if (batch.length === 0) continue;
+    const snapshot = await db.collection(collection)
+      .where('__name__', 'in', batch)
+      .get();
+    results.push(...snapshot.docs.map((doc: any) => docToObject(doc)));
+  }
+  return results;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -58,6 +71,7 @@ export async function GET(request: NextRequest) {
     const userType = userData?.user_type || 'personal';
 
     let expenses: any[] = [];
+    let groupIdsForMemberLookup: string[] = [];
 
     if (userType === 'personal') {
       // Get groups user is a member of
@@ -66,6 +80,7 @@ export async function GET(request: NextRequest) {
         .get();
       
       const groupIds = groupMembersSnapshot.docs.map(doc => doc.data().group_id);
+      groupIdsForMemberLookup = groupIds;
 
       // Get expenses paid by user
       const paidBySnapshot = await db.collection(COLLECTIONS.EXPENSES)
@@ -114,62 +129,83 @@ export async function GET(request: NextRequest) {
       return createdB.getTime() - createdA.getTime();
     });
 
-    // Fetch additional details for each expense
-    const expensesWithDetails = await Promise.all(
-      expenses.map(async (expense) => {
-        let groupName = null;
-        let participantCount = 1;
-        let paidByName = 'Unknown';
-
-        // Get paid by name
-        if (expense.paid_by === user.id) {
-          paidByName = 'You';
-        } else if (expense.group_id) {
-          const memberSnapshot = await db.collection(COLLECTIONS.GROUP_MEMBERS)
-            .where('group_id', '==', expense.group_id)
-            .where('user_id', '==', expense.paid_by)
-            .limit(1)
-            .get();
-          
-          if (!memberSnapshot.empty) {
-            paidByName = memberSnapshot.docs[0].data().name || 'Unknown';
-          }
-        } else {
-          const paidByUserDoc = await db.collection(COLLECTIONS.USERS).doc(expense.paid_by).get();
-          if (paidByUserDoc.exists) {
-            paidByName = paidByUserDoc.data()?.full_name || 'Unknown';
-          }
-        }
-
-        // Get group name and participant count
-        if (expense.group_id) {
-          const groupDoc = await db.collection(COLLECTIONS.GROUPS).doc(expense.group_id).get();
-          if (groupDoc.exists) {
-            groupName = groupDoc.data()?.name || null;
-          }
-
-          const splitsSnapshot = await db.collection(COLLECTIONS.EXPENSE_SPLITS)
-            .where('expense_id', '==', expense.id)
-            .get();
-          participantCount = splitsSnapshot.size || 1;
-        }
-
-        return {
-          id: expense.id,
-          description: expense.description,
-          amount: expense.amount,
-          paid_by: expense.paid_by,
-          date: expense.date instanceof Date ? expense.date.toISOString().split('T')[0] : expense.date.split('T')[0],
-          category: normalizeCategory(expense.category),
-          group_id: expense.group_id || null,
-          split_type: expense.split_type,
-          group_name: groupName,
-          participant_count: participantCount,
-          paid_by_name: paidByName,
-          created_at: expense.created_at instanceof Date ? expense.created_at.toISOString() : expense.created_at,
-        };
-      })
+    const uniqueGroupIds = Array.from(new Set(expenses.map((expense) => expense.group_id).filter(Boolean)));
+    const uniquePayerIds = Array.from(
+      new Set(expenses.map((expense) => expense.paid_by).filter((id) => id && id !== user.id))
     );
+    const uniqueExpenseIds = expenses.filter((expense) => expense.group_id).map((expense) => expense.id);
+
+    const [groupDocs, payerDocs, splitDocs, memberDocs] = await Promise.all([
+      fetchDocsByIds(db, COLLECTIONS.GROUPS, uniqueGroupIds),
+      fetchDocsByIds(db, COLLECTIONS.USERS, uniquePayerIds),
+      Promise.all(
+        uniqueExpenseIds.length === 0
+          ? []
+          : uniqueExpenseIds.reduce((acc: Promise<any>[], _, index) => {
+              if (index % 10 === 0) {
+                const batch = uniqueExpenseIds.slice(index, index + 10);
+                acc.push(
+                  db.collection(COLLECTIONS.EXPENSE_SPLITS)
+                    .where('expense_id', 'in', batch)
+                    .get()
+                    .then((snapshot: any) => snapshot.docs.map((doc: any) => docToObject(doc)))
+                );
+              }
+              return acc;
+            }, [])
+      ).then((batches) => batches.flat()),
+      groupIdsForMemberLookup.length === 0
+        ? []
+        : Promise.all(
+            groupIdsForMemberLookup.reduce((acc: Promise<any>[], _, index) => {
+              if (index % 10 === 0) {
+                const batch = groupIdsForMemberLookup.slice(index, index + 10);
+                acc.push(
+                  db.collection(COLLECTIONS.GROUP_MEMBERS)
+                    .where('group_id', 'in', batch)
+                    .get()
+                    .then((snapshot: any) => snapshot.docs.map((doc: any) => docToObject(doc)))
+                );
+              }
+              return acc;
+            }, [])
+          ).then((batches) => batches.flat()),
+    ]);
+
+    const groupNameMap = new Map(groupDocs.map((group: any) => [group.id, group.name || null]));
+    const payerNameMap = new Map(payerDocs.map((payer: any) => [payer.id, payer.full_name || payer.name || 'Unknown']));
+    const memberNameMap = new Map<string, string>();
+    memberDocs.forEach((member: any) => {
+      memberNameMap.set(`${member.group_id}:${member.user_id}`, member.name || 'Unknown');
+    });
+    const splitCountMap = new Map<string, number>();
+    splitDocs.forEach((split: any) => {
+      splitCountMap.set(split.expense_id, (splitCountMap.get(split.expense_id) || 0) + 1);
+    });
+
+    const expensesWithDetails = expenses.map((expense) => {
+      const paidByName =
+        expense.paid_by === user.id
+          ? 'You'
+          : memberNameMap.get(`${expense.group_id}:${expense.paid_by}`) ||
+            payerNameMap.get(expense.paid_by) ||
+            'Unknown';
+
+      return {
+        id: expense.id,
+        description: expense.description,
+        amount: expense.amount,
+        paid_by: expense.paid_by,
+        date: expense.date instanceof Date ? expense.date.toISOString().split('T')[0] : expense.date.split('T')[0],
+        category: normalizeCategory(expense.category),
+        group_id: expense.group_id || null,
+        split_type: expense.split_type,
+        group_name: expense.group_id ? groupNameMap.get(expense.group_id) || null : null,
+        participant_count: expense.group_id ? splitCountMap.get(expense.id) || 1 : 1,
+        paid_by_name: paidByName,
+        created_at: expense.created_at instanceof Date ? expense.created_at.toISOString() : expense.created_at,
+      };
+    });
 
     // Cache the result
     setCache(cacheKey, expensesWithDetails);

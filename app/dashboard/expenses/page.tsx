@@ -44,6 +44,22 @@ type Expense = {
   paid_by_name?: string
 }
 
+function normalizeExpense(expense: any): Expense {
+  return {
+    id: expense.id,
+    description: expense.description,
+    amount: Number(expense.amount || 0),
+    paid_by: expense.paid_by || "",
+    date: expense.date || new Date().toISOString().split("T")[0],
+    category: expense.category || "Others",
+    group_id: expense.group_id || null,
+    split_type: expense.split_type || "equal",
+    group_name: expense.group_name || null,
+    participant_count: expense.participant_count || 1,
+    paid_by_name: expense.paid_by_name || "You",
+  }
+}
+
 export default function ExpensesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -102,7 +118,7 @@ export default function ExpensesPage() {
       }
     };
     fetchExpenses();
-  }, [isAddOpen, isCalendarModalOpen]); // Remove calendarRefreshKey dependency
+  }, []);
 
   const filteredExpenses = expenses.filter(expense => {
     const matchesSearch = expense.description.toLowerCase().includes(searchQuery.toLowerCase())
@@ -356,13 +372,24 @@ export default function ExpensesPage() {
           </TabsContent>
         </Tabs>
 
-        <AddExpenseDialog open={isAddOpen} onOpenChange={setIsAddOpen} />
+        <AddExpenseDialog
+          open={isAddOpen}
+          onOpenChange={setIsAddOpen}
+          onExpenseUpdated={(expense) => {
+            if (!expense) return
+            const normalized = normalizeExpense(expense)
+            setExpenses((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+          }}
+        />
         <AddExpenseModal 
           open={isCalendarModalOpen} 
           onOpenChange={setIsCalendarModalOpen}
           selectedDate={selectedDate}
-          onExpenseAdded={() => {
-            // Calendar will automatically update since we're passing expenses as props
+          onExpenseAdded={(expense) => {
+            if (!expense) return
+            const normalized = normalizeExpense(expense)
+            setExpenses((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+            setSelectedDateForDetails(selectedDate)
           }}
         />
       </div>

@@ -29,9 +29,10 @@ import { useToast } from "@/hooks/use-toast"
 interface AddTransactionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onTransactionAdded?: (transaction?: any) => void
 }
 
-export function AddTransactionDialog({ open, onOpenChange }: AddTransactionDialogProps) {
+export function AddTransactionDialog({ open, onOpenChange, onTransactionAdded }: AddTransactionDialogProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
@@ -67,6 +68,7 @@ export function AddTransactionDialog({ open, onOpenChange }: AddTransactionDialo
       const response = await fetch("/api/khata/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           customer_id: formData.customerId,
           type: formData.type,
@@ -81,6 +83,7 @@ export function AddTransactionDialog({ open, onOpenChange }: AddTransactionDialo
         throw new Error(data.error || "Failed to add transaction");
       }
 
+      const createdTransaction = await response.json()
       onOpenChange(false)
       setFormData({
         customerId: "",
@@ -93,8 +96,7 @@ export function AddTransactionDialog({ open, onOpenChange }: AddTransactionDialo
         title: "Transaction added",
         description: "Transaction has been successfully recorded.",
       })
-      // Refresh the page to show new transaction
-      window.location.reload()
+      onTransactionAdded?.(createdTransaction)
     } catch (err: any) {
       console.error("Error creating transaction:", err)
       toast({
