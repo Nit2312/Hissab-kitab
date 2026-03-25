@@ -21,12 +21,12 @@ import {
 } from "@/components/ui/sheet"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { signOut } from "firebase/auth"
 import {
   Bell,
   Menu,
   LogOut,
   Settings,
-  User,
   BookOpen,
   LayoutDashboard,
   Users,
@@ -38,6 +38,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
+import { getFirebaseAuth } from "@/lib/firebase/client"
 
 const personalNavItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Overview" },
@@ -69,12 +70,19 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
   const pathname = usePathname()
   const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const isBusinessUser = userType === "business"
-  const navItems = (userType && userType === "business") ? businessNavItems : personalNavItems
+  const navItems = isBusinessUser ? businessNavItems : personalNavItems
 
   const handleLogout = async () => {
+    setIsLoggingOut(true)
+    try {
+      await signOut(getFirebaseAuth())
+    } catch (error) {
+      console.error("Failed to sign out Firebase session:", error)
+    }
     await fetch("/api/auth/signout", { method: "POST", credentials: "include" })
-    window.location.href = "/login"
+    router.replace("/login")
   }
 
   const getInitials = (name: string) => {
@@ -90,7 +98,7 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
   const currentPageTitle = allNavItems.find((item) => item.href === pathname)?.label || "Dashboard"
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-card px-4 lg:px-6">
+    <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between border-b border-border/60 bg-background/90 px-4 backdrop-blur-xl lg:px-6">
       {/* Mobile Menu */}
       <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
         <SheetTrigger asChild className="lg:hidden">
@@ -185,6 +193,9 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
 
       {/* Page Title - Desktop */}
       <div className="hidden lg:block">
+        <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+          {isBusinessUser ? "Business dashboard" : "Personal dashboard"}
+        </p>
         <h1 className="text-lg font-semibold text-foreground">{currentPageTitle}</h1>
       </div>
 
@@ -200,12 +211,8 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
       <div className="flex items-center gap-2">
         {/* Theme Toggle */}
         <ThemeToggle />
-        
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="Notifications">
           <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
-          <span className="sr-only">Notifications</span>
         </Button>
 
         {/* User Menu */}
@@ -219,7 +226,7 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel>
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium">{userName}</p>
@@ -237,9 +244,9 @@ export function DashboardHeader({ userName, userType, businessName, userEmail }:
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
+            <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive" disabled={isLoggingOut}>
               <LogOut className="mr-2 h-4 w-4" />
-              Log out
+              {isLoggingOut ? "Logging out..." : "Log out"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

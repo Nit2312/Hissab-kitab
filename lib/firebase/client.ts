@@ -11,8 +11,6 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-console.log('Firebase config:', { ...firebaseConfig, apiKey: firebaseConfig.apiKey ? '***' : 'MISSING' });
-
 export function getFirebaseApp() {
   if (getApps().length === 0) {
     return initializeApp(firebaseConfig);

@@ -15,8 +15,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use shared Firebase Admin instance
-    const db = getFirestoreDB();
+    let db;
+    try {
+      db = getFirestoreDB();
+    } catch (configError: any) {
+      console.error('Firebase Admin configuration error:', configError);
+      return NextResponse.json(
+        {
+          error:
+            configError?.message ||
+            'Firebase Admin is not configured. Add FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_PROJECT_ID to your environment.',
+        },
+        { status: 500 }
+      );
+    }
+
     const adminAuth = getAuth();
 
     // Verify the ID token
@@ -25,7 +38,13 @@ export async function POST(request: NextRequest) {
       decodedToken = await adminAuth.verifyIdToken(idToken);
     } catch (err) {
       console.error('Token verification error:', err);
-      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+      return NextResponse.json(
+        {
+          error:
+            'Invalid or expired token. If this keeps happening, check that your Firebase project ID and Admin credentials match the client app.',
+        },
+        { status: 401 }
+      );
     }
 
     const uid = decodedToken.uid;

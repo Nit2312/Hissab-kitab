@@ -1,33 +1,37 @@
 "use client"
 
 import React from "react"
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { useRequireAuth } from "@/hooks/use-require-auth"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
+import { PageLoading } from "@/components/ui/loading-skeleton"
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
   const { user, loading } = useRequireAuth()
 
-  if (loading) {
-    return <div className="p-8 text-center">Loading...</div>
-  }
-  if (!user) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/login?error=unauthorized"
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login?error=unauthorized")
     }
-    return null
+  }, [loading, router, user])
+
+  if (loading) {
+    return <PageLoading />
+  }
+
+  if (!user) {
+    return <PageLoading />
   }
 
   const userType = user.user_type || "personal"
   const userName = user.full_name || user.email?.split("@")[0] || "User"
   const businessName = user.business_name || null
-
-  // Debug: Log the user object and detected type
-  console.log('[Layout Debug] user:', user)
-  console.log('[Layout Debug] detected userType:', userType)
 
   return (
     <DashboardShell

@@ -17,7 +17,6 @@ import {
 } from "lucide-react"
 import { KhataCustomerCard } from "@/components/khata/khata-customer-card"
 import { AddTransactionDialog } from "@/components/khata/add-transaction-dialog"
-import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 
 type Customer = {
@@ -52,11 +51,12 @@ export default function KhataPage() {
   const [totalOutstanding, setTotalOutstanding] = useState(0)
   const [totalCollectedToday, setTotalCollectedToday] = useState(0)
   const [totalCreditToday, setTotalCreditToday] = useState(0)
-  const searchParams = useSearchParams();
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchKhataData = async () => {
       setLoading(true)
+      setError(null)
       try {
         // Get current user
         const userResponse = await fetch("/api/auth/user", { credentials: "include" })
@@ -67,7 +67,7 @@ export default function KhataPage() {
         // Only allow business users to access khata
         if (userData.user_type !== "business") {
           // Redirect personal users to personal dashboard
-          window.location.href = "/dashboard"
+          window.location.assign("/dashboard")
           return
         }
 
@@ -112,6 +112,8 @@ export default function KhataPage() {
       } catch (err) {
         console.error("Error fetching khata data:", err)
         setCustomers([])
+        setRecentTransactions([])
+        setError("We could not load your khata data right now. Please try again in a moment.")
       } finally {
         setLoading(false)
       }
@@ -129,20 +131,33 @@ export default function KhataPage() {
     <Suspense fallback={<Loading />}>
       <div className="space-y-6 pb-20 lg:pb-0">
         {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-foreground">Khata / Bahi Khata</h2>
-            <p className="text-muted-foreground">Manage your customer credit and payments</p>
+        <Card className="glass-card">
+          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                Business khata
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Khata / Bahi Khata</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Manage customer credit, collections, and daily cash flow from one clean dashboard.
+              </p>
+            </div>
+            <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-sm">
+              <Plus className="h-4 w-4" />
+              Add Transaction
+            </Button>
+          </CardContent>
+        </Card>
+
+        {error && (
+          <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+            {error}
           </div>
-          <Button onClick={() => setIsAddOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Add Transaction
-          </Button>
-        </div>
+        )}
 
         {/* Summary Cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
+          <Card className="glass-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Total Outstanding
@@ -158,7 +173,7 @@ export default function KhataPage() {
               </p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Collected Today
@@ -174,7 +189,7 @@ export default function KhataPage() {
               </p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Credit Given Today
@@ -190,7 +205,7 @@ export default function KhataPage() {
               </p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Active Customers
@@ -210,7 +225,7 @@ export default function KhataPage() {
 
         {/* Tabs */}
         <Tabs defaultValue="customers" className="space-y-4">
-          <TabsList>
+          <TabsList className="w-full justify-start gap-2 rounded-2xl border border-border/60 bg-card/70 p-1">
             <TabsTrigger value="customers">Customers</TabsTrigger>
             <TabsTrigger value="transactions">Recent Transactions</TabsTrigger>
           </TabsList>
@@ -229,7 +244,9 @@ export default function KhataPage() {
 
             {/* Customer List */}
             {loading ? (
-              <div className="py-8 text-center text-muted-foreground">Loading customers...</div>
+              <div className="rounded-2xl border border-dashed border-border/80 bg-muted/30 py-10 text-center text-muted-foreground">
+                Loading customers...
+              </div>
             ) : filteredCustomers.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredCustomers.map((customer) => (
@@ -237,24 +254,32 @@ export default function KhataPage() {
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <p className="text-muted-foreground">No customers found</p>
-                <Button variant="link" onClick={() => setIsAddOpen(true)}>
-                  Add your first customer
-                </Button>
-              </div>
+              <Card className="glass-card">
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-muted-foreground">
+                    {searchQuery ? "No customers match your search." : "No customers yet. Add your first customer to begin."}
+                  </p>
+                  {!searchQuery && (
+                    <Button variant="link" onClick={() => setIsAddOpen(true)}>
+                      Add your first customer
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
           <TabsContent value="transactions" className="space-y-4">
-            <Card>
+            <Card className="glass-card">
               <CardHeader>
                 <CardTitle>Recent Transactions</CardTitle>
                 <CardDescription>Latest credit and payment entries</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {loading ? (
-                  <div className="py-8 text-center text-muted-foreground">Loading transactions...</div>
+                  <div className="rounded-2xl border border-dashed border-border/80 bg-muted/30 py-10 text-center text-muted-foreground">
+                    Loading transactions...
+                  </div>
                 ) : recentTransactions.length > 0 ? (
                   recentTransactions.map((transaction) => (
                   <div
@@ -293,7 +318,9 @@ export default function KhataPage() {
                   </div>
                   ))
                 ) : (
-                  <div className="py-8 text-center text-muted-foreground">No transactions yet</div>
+                  <div className="rounded-2xl border border-dashed border-border/80 bg-muted/30 px-5 py-8 text-center text-sm text-muted-foreground">
+                    No transactions yet. Add the first payment or credit entry to start tracking.
+                  </div>
                 )}
               </CardContent>
             </Card>

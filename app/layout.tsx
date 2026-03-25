@@ -1,19 +1,11 @@
 import React from "react"
 import { Providers } from "@/components/ssr-provider"
 import type { Metadata } from 'next'
-import { Inter, Poppins } from 'next/font/google'
 import './globals.css'
 
-const _inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
-const _poppins = Poppins({ 
-  subsets: ["latin"], 
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-poppins'
-});
-
 export const metadata: Metadata = {
-  title: 'HisaabKitab - Split Expenses & Manage Udhaar',
-  description: 'Track shared expenses, manage credit (udhaar), and settle payments easily. Perfect for friends, families, and small retailers in India.',
+  title: 'HisaabKitab',
+  description: 'A modern way to split expenses, manage udhaar, and keep group or business balances clear.',
   generator: 'HisaabKitab',
   icons: {
     icon: [
@@ -41,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`font-sans antialiased`}>
+      <body className="font-sans antialiased">
         <Providers>
           {children}
         </Providers>

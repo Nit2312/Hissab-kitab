@@ -2,7 +2,6 @@
 
 import React from "react"
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,7 +9,6 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Eye, EyeOff, Loader2, Users, Store, CheckCircle } from "lucide-react"
 export function SignupForm() {
-  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -83,11 +81,11 @@ export function SignupForm() {
 
   if (success) {
     return (
-      <div className="flex flex-col items-center justify-center space-y-4 text-center py-8">
+      <div className="flex flex-col items-center justify-center space-y-4 py-8 text-center">
         <div className="rounded-full bg-primary/10 p-3">
           <CheckCircle className="h-8 w-8 text-primary" />
         </div>
-        <h2 className="text-xl font-semibold">Account created successfully!</h2>
+        <h2 className="text-xl font-semibold text-foreground">Account created successfully!</h2>
         <p className="text-muted-foreground">
           Welcome to HisaabKitab! Your account has been created and you can now sign in.
         </p>
@@ -99,9 +97,9 @@ export function SignupForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" aria-busy={isLoading}>
       {error && (
-        <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
           {error}
         </div>
       )}
@@ -126,7 +124,7 @@ export function SignupForm() {
               Personal
             </span>
             <span className="text-xs text-muted-foreground text-center">
-              Friends & Family
+              Friends and family
             </span>
           </Label>
           <Label
@@ -142,7 +140,7 @@ export function SignupForm() {
               Business
             </span>
             <span className="text-xs text-muted-foreground text-center">
-              Shop & Retail
+              Shop and retail
             </span>
           </Label>
         </RadioGroup>

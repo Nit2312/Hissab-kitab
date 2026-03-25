@@ -2,7 +2,6 @@
 
 import React from "react"
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,7 +13,6 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ initialError }: LoginFormProps = {}) {
-  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(initialError || null)
@@ -102,16 +100,16 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" aria-busy={isLoading}>
       {success && (
-        <div className="p-3 text-sm text-primary bg-primary/10 rounded-md flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary" role="status" aria-live="polite">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>Login successful! Redirecting to dashboard...</span>
         </div>
       )}
 
       {error && (
-        <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
           {error}
         </div>
       )}
@@ -136,7 +134,7 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
               Personal
             </span>
             <span className="text-xs text-muted-foreground text-center">
-              Split with friends
+              Split bills with friends
             </span>
           </Label>
           <Label
@@ -152,7 +150,7 @@ export function LoginForm({ initialError }: LoginFormProps = {}) {
               Business
             </span>
             <span className="text-xs text-muted-foreground text-center">
-              Manage khata
+              Manage customer khata
             </span>
           </Label>
         </RadioGroup>

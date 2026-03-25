@@ -21,7 +21,6 @@ import { ExpenseCalendar } from "@/components/calendar/expense-calendar"
 import { AddExpenseModal } from "@/components/calendar/add-expense-modal"
 import { ExpenseDetails } from "@/components/calendar/expense-details"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
-import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import Loading from "./loading"
 
@@ -47,7 +46,6 @@ type Expense = {
 
 export default function ExpensesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false)
-  const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [expenses, setExpenses] = useState<Expense[]>([])
@@ -58,13 +56,14 @@ export default function ExpensesPage() {
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false)
   const [selectedDateForDetails, setSelectedDateForDetails] = useState<Date | null>(null)
   const [activeTab, setActiveTab] = useState("list")
-  const searchParams = useSearchParams()
+  const [error, setError] = useState<string | null>(null)
 
   const [currentUserId, setCurrentUserId] = useState<string>("")
 
   useEffect(() => {
     const fetchExpenses = async () => {
       setLoading(true)
+      setError(null)
       try {
         // Fetch user info, categories, and expenses in parallel
         const [userResponse, categoriesResponse, expensesResponse] = await Promise.all([
@@ -81,7 +80,7 @@ export default function ExpensesPage() {
         // Only allow personal users to access personal expenses
         if (userData.user_type === "business") {
           // Redirect business users to business khata page
-          window.location.href = "/dashboard/khata"
+          window.location.assign("/dashboard/khata")
           return
         }
 
@@ -97,6 +96,7 @@ export default function ExpensesPage() {
         console.error("Error fetching expenses:", err);
         setExpenses([]);
         setCategories([]);
+        setError("We could not load expenses right now. Please try again in a moment.");
       } finally {
         setLoading(false);
       }
@@ -138,19 +138,14 @@ export default function ExpensesPage() {
 
   const handleDeleteExpense = async (expenseId: string) => {
     try {
-      console.log('Attempting to delete expense:', expenseId)
-      
       const response = await fetch(`/api/expenses/${expenseId}`, {
         method: 'DELETE',
         credentials: 'include'
       })
-      
-      console.log('Delete response status:', response.status)
-      
+
       if (response.ok) {
         // Remove expense from local state for immediate UI update
         setExpenses(prev => prev.filter(expense => expense.id !== expenseId))
-        console.log('Expense deleted successfully')
       } else {
         const errorData = await response.json().catch(() => ({}))
         console.error('Failed to delete expense:', response.status, errorData)
@@ -180,25 +175,36 @@ export default function ExpensesPage() {
     <Suspense fallback={<Loading />}>
       <div className="space-y-6 pb-20 lg:pb-0">
         {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-foreground">Expenses</h2>
-            <p className="text-muted-foreground">
-              {userType === "business" 
-                ? "View your expense history (use Khata for managing customer transactions)"
-                : "Track and manage all your expenses"}
-            </p>
+        <Card className="glass-card">
+          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                Expense tracker
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Expenses</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                {userType === "business"
+                  ? "Personal expense history is shown here. Use Khata for customer transactions."
+                  : "Track and manage all of your shared and personal expenses in one place."}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              {userType === "personal" && (
+                <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-sm">
+                  <Plus className="h-4 w-4" />
+                  Add Expense
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {error && (
+          <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+            {error}
           </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            {userType === "personal" && (
-              <Button onClick={() => setIsAddOpen(true)} className="gap-2">
-                <Plus className="h-4 w-4" />
-                Add Expense
-              </Button>
-            )}
-          </div>
-        </div>
+        )}
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -215,7 +221,8 @@ export default function ExpensesPage() {
 
           <TabsContent value="list" className="space-y-4">
             {/* Filters */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <Card className="glass-card">
+              <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
               <div className="relative flex-1 sm:max-w-md">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -225,26 +232,27 @@ export default function ExpensesPage() {
                   className="pl-9"
                 />
               </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <Filter className="mr-2 h-4 w-4" />
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((category: Category) => (
-                    <SelectItem key={category.id} value={category.name}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <ManageCategoriesDialog onCategoriesChange={handleCategoriesChange}>
-                <Button variant="outline" size="icon">
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </ManageCategoriesDialog>
-            </div>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <Filter className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {categories.map((category: Category) => (
+                      <SelectItem key={category.id} value={category.name}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <ManageCategoriesDialog onCategoriesChange={handleCategoriesChange}>
+                  <Button variant="outline" size="icon" aria-label="Manage categories">
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </ManageCategoriesDialog>
+              </CardContent>
+            </Card>
 
             {/* Expenses List */}
             <div className="space-y-4">
@@ -294,14 +302,20 @@ export default function ExpensesPage() {
                   />
                 ))
               ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <p className="text-muted-foreground">No expenses found</p>
+                <Card className="glass-card">
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-muted-foreground">
+                    {searchQuery || categoryFilter !== "all"
+                      ? "No expenses match the current filters."
+                      : "No expenses found yet."}
+                  </p>
                   {userType === "personal" && (
                     <Button variant="link" onClick={() => setIsAddOpen(true)}>
                       Add your first expense
                     </Button>
                   )}
-                </div>
+                  </CardContent>
+                </Card>
               )}
             </div>
           </TabsContent>
@@ -349,7 +363,6 @@ export default function ExpensesPage() {
           selectedDate={selectedDate}
           onExpenseAdded={() => {
             // Calendar will automatically update since we're passing expenses as props
-            console.log('Expense added - calendar will update automatically')
           }}
         />
       </div>

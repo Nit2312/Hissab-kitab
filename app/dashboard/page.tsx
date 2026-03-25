@@ -8,8 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useRequireAuth } from "@/hooks/use-require-auth"
 import { useExpenses, useGroups, useSettlements } from "@/hooks/use-optimized-data"
-import { SkeletonGrid, SkeletonRow, LoadingSpinner } from "@/components/ui/loading-skeleton"
-import { Plus, Receipt, Users, CreditCard, TrendingUp, Clock } from "lucide-react"
+import { Plus, Users, CreditCard } from "lucide-react"
 
 type User = {
   id: string
@@ -17,13 +16,6 @@ type User = {
   full_name?: string
   user_type?: "personal" | "business"
   business_name?: string | null
-}
-
-type Group = {
-  id: string
-  name: string
-  type: string
-  created_at: string
 }
 
 type Expense = {
@@ -39,24 +31,6 @@ type Expense = {
   participant_count?: number
 }
 
-type Settlement = {
-  id: string
-  from_user_id: string
-  to_user_id: string
-  amount: number
-  status: string
-  created_at: string
-  settled_at?: string
-}
-
-function startOfMonthISO(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), 1)
-}
-
-function isSameOrAfter(a: Date, b: Date) {
-  return a.getTime() >= b.getTime()
-}
-
 export default function DashboardPage() {
   useRequireAuth()
 
@@ -65,7 +39,7 @@ export default function DashboardPage() {
   // Use optimized hooks with caching
   const { expenses, loading: expensesLoading } = useExpenses()
   const { groups, loading: groupsLoading } = useGroups()
-  const { settlements, loading: settlementsLoading } = useSettlements()
+  const { loading: settlementsLoading } = useSettlements()
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -94,11 +68,9 @@ export default function DashboardPage() {
     if (!expenses.length) return {
       thisMonthTotal: 0,
       last7Total: 0,
-      totalAllTime: 0,
       topCategory: "—",
       categoryRows: [],
       recent: [],
-      settlementsTotal: 0,
     }
 
     const now = new Date()
@@ -120,8 +92,6 @@ export default function DashboardPage() {
 
     const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + e.amount, 0)
     const last7Total = last7Expenses.reduce((sum, e) => sum + e.amount, 0)
-    const totalAllTime = parsedExpenses.reduce((sum, e) => sum + e.amount, 0)
-
     const byCategory = new Map<string, number>()
     for (const e of thisMonthExpenses) {
       const key = e.category || "Others"
@@ -138,18 +108,14 @@ export default function DashboardPage() {
       .sort((a, b) => b._date.getTime() - a._date.getTime())
       .slice(0, 6)
 
-    const settlementsTotal = settlements.reduce((sum, s) => sum + Number(s.amount || 0), 0)
-
     return {
       thisMonthTotal,
       last7Total,
-      totalAllTime,
       topCategory,
       categoryRows,
       recent,
-      settlementsTotal,
     }
-  }, [expenses, settlements])
+  }, [expenses])
 
 
   const formatINR = useMemo(() => {
@@ -162,7 +128,7 @@ export default function DashboardPage() {
   }, []);
 
   const RecentExpenses = React.memo(({ recent, loading }: { recent: any[]; loading: boolean }) => (
-    <Card className="lg:col-span-2">
+    <Card className="glass-card lg:col-span-2">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Recent Expenses</CardTitle>
         <Button variant="outline" asChild className="bg-transparent">
@@ -192,7 +158,9 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : recent.length === 0 ? (
-          <div className="py-6 text-sm text-muted-foreground">No expenses yet.</div>
+          <div className="rounded-2xl border border-dashed border-border/80 bg-muted/30 px-5 py-8 text-center text-sm text-muted-foreground">
+            No expenses yet. Add your first expense to see it here.
+          </div>
         ) : (
           <div className="space-y-3">
             {recent.map((e) => (
@@ -226,7 +194,7 @@ export default function DashboardPage() {
   ));
 
   const CategoryBreakdown = React.memo(({ categoryRows, loading }: { categoryRows: any[]; loading: boolean }) => (
-    <Card>
+    <Card className="glass-card">
       <CardHeader>
         <CardTitle className="text-base">This Month Breakdown</CardTitle>
       </CardHeader>
@@ -241,7 +209,9 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : categoryRows.length === 0 ? (
-          <div className="py-6 text-sm text-muted-foreground">No data for this month.</div>
+          <div className="rounded-2xl border border-dashed border-border/80 bg-muted/30 px-5 py-8 text-center text-sm text-muted-foreground">
+            No spend data yet for this month.
+          </div>
         ) : (
           <div className="space-y-3">
             {categoryRows.slice(0, 6).map((row) => (
@@ -263,17 +233,21 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 pb-20 lg:pb-0">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Namaste, {userName}!</h2>
-          <p className="text-muted-foreground">
-            {isBusinessUser
-              ? "A quick snapshot of your activity"
-              : "Here’s what’s happening across your expenses and groups"}
-          </p>
-        </div>
+      <Card className="glass-card">
+        <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              Dashboard overview
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Namaste, {userName}!</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+              {isBusinessUser
+                ? "A quick snapshot of outstanding balances, collections, and recent activity."
+                : "A quick snapshot of your spending, groups, and recent expenses."}
+            </p>
+          </div>
 
-        <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
           {!isBusinessUser && (
             <Button asChild className="gap-2">
               <Link href="/dashboard/expenses?action=add">
@@ -288,17 +262,18 @@ export default function DashboardPage() {
               Create Group
             </Link>
           </Button>
-          <Button variant="outline" asChild className="gap-2 bg-transparent">
-            <Link href="/dashboard/settlements">
-              <CreditCard className="h-4 w-4" />
-              Settle Up
-            </Link>
-          </Button>
-        </div>
-      </div>
+            <Button variant="outline" asChild className="gap-2 bg-transparent">
+              <Link href="/dashboard/settlements">
+                <CreditCard className="h-4 w-4" />
+                Settle Up
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card className="glass-card">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">This Month</CardTitle>
           </CardHeader>
@@ -314,7 +289,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-card">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Last 7 Days</CardTitle>
           </CardHeader>
@@ -330,7 +305,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-card">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Top Category</CardTitle>
           </CardHeader>
@@ -346,7 +321,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-card">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Groups</CardTitle>
           </CardHeader>

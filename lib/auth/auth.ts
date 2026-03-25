@@ -232,7 +232,7 @@ export async function signUp(
 
     if (error.code === 16 || error.message?.includes('UNAUTHENTICATED')) {
       return {
-        error: 'Authentication failed. Please check your FIREBASE_SERVICE_ACCOUNT_KEY in .env.local.local is correct.'
+        error: 'Authentication failed. Please check your FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_PROJECT_ID in .env.local.'
       };
     }
 
